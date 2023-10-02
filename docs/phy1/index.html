@@ -3,24 +3,59 @@
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no" />
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@0.9.4/css/bulma.min.css">
     <title>Phy1</title>
+    <style>
+        .center {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        [v-cloak] {
+            display: none;
+        }
+    </style>
 </head>
 <body>
-    <div id="plot"></div>
+    <div id="app" v-cloak>
+        <div class="container center">
+            <p> {{ status }} </p>
+        </div>
+        <div id="plot"></div>
+    </div>
+    <!-- Vue3 -->
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
     <!-- Pyodide -->
     <script src="https://cdn.jsdelivr.net/pyodide/v0.24.0/full/pyodide.js"></script>
     <!-- Plotly -->
     <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/3.5.6/d3.min.js"></script>
     <script>
+        let app = Vue.createApp({
+            data(){
+                return {
+                    status: '...'
+                }
+            },
+            methods: {
+                updateStatus(str){
+                    this.status = str
+                }
+            }
+        });
+        const vm = app.mount('#app');
         async function main(){
+            vm.updateStatus('loading Pyodide...');
             let pyodide = await loadPyodide();
+            vm.updateStatus('loading numpy...');
             await pyodide.loadPackage("numpy");
+            vm.updateStatus('running Python...')
             pyodide.runPython(`
                 import numpy as np
                 X = np.linspace(-10, 10, 5000)
                 Y = np.sin(X)/X
             `);
+            vm.updateStatus('running Python... done')
             let X = pyodide.globals.get('X').toJs();
             let Y = pyodide.globals.get('Y').toJs();
             let trace = { x: X, y: Y, type: 'scatter' };
