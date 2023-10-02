@@ -92,11 +92,19 @@
 
         // Check if the renderer's canvas is not already the size it is being displayed as, and if so, set its size.
         function resizeRendererToDisplaySize(renderer) {
-            const width = canvas.clientWidth;
-            const height = canvas.clientHeight;
+            const width = window.innerWidth;
+            const height = window.innerHeight;
             const needResize = canvas.width !== width || canvas.height !== height;
-            if (needResize) {
-                renderer.setSize(width, height, false); // canvas's drawingbuffer size (internal size)
+            if(needResize){
+                if(width < 800){
+                renderer.setSize(width - 50, height - 50, false); // canvas's drawingbuffer size (internal size)
+                camera.aspect = canvas.clientWidth / canvas.clientHeight;
+                camera.updateProjectionMatrix();
+                } else {
+                    renderer.setSize(800, 500, false);
+                    camera.aspect = canvas.clientWidth / canvas.clientHeight;
+                    camera.updateProjectionMatrix();
+                }
             }
             return needResize;
         }
@@ -166,11 +174,7 @@
         
         const animate = () => {
             // set the aspect of the camera to the aspect of the canvas's display size:
-            if (resizeRendererToDisplaySize(renderer)) {
-                const canvas = renderer.domElement;
-                camera.aspect = canvas.clientWidth / canvas.clientHeight;
-                camera.updateProjectionMatrix();
-            }
+            resizeRendererToDisplaySize(renderer)
             controls.update();
             requestAnimationFrame(animate);
 
