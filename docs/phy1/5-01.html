@@ -15,9 +15,13 @@
         .flex-container {
             display: flex;
             flex-wrap: wrap;
+            align-items: center;
+            justify-content: center;
         }
         .flex-item-left {
             flex: 70%;
+            display: flex;
+            justify-content: center;
         }
         .flex-item-right {
             flex: 20%
@@ -25,11 +29,18 @@
         @media (max-width: 800px) {
             .flex-item-left, .flex-item-right {
                 flex: 100%;
+                justify-content: center;
             }
         }
         .stats {
             color: lightgray;
             font-family: monospace;
+            position: absolute;
+            top: 10px;
+            width: 100%;
+            text-align: center;
+            z-index: 100;
+            display: block;
         }
     </style>
 </head>
@@ -37,13 +48,14 @@
     <div id="app">
         <div class="flex-container">
             <div class="flex-item-left">
+                <div class="stats" id="data">data</div>
                 <canvas id="c" width="800px" height="500px"></canvas>
             </div>
             <div class="flex-item-right">
                 <div id="gui_container" class="gui_fix"></div>
             </div>
         </div>
-        <div class="stats" id="data">data</div>
+        
         <div id="plot">plot</div>
     </div>
     <!-- Vue3 -->
@@ -67,10 +79,10 @@
 
         // canvas, renderer, camera and scene
         const canvas = document.querySelector('#c');
-        const renderer = new THREE.WebGLRenderer({ canvas }); //const renderer = new THREE.WebGLRenderer();
+        const renderer = new THREE.WebGLRenderer({ canvas });
         renderer.shadowMap.enabled = true;
         const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
-        camera.position.set(5, 2, 6);
+        camera.position.set(3.5, 2, 4.5);
         const scene = new THREE.Scene();
         scene.background = new THREE.Color(0x000000);
 
@@ -128,14 +140,14 @@
             });
         }
         let cylinder;
-        let sphereInit;
+        let sphere;
         async function addModel(){
             const gltf = await modelLoader('./cylinder.glb');
             cylinder = gltf.scene;
             gltf.scene.traverse((node) => {
                 if(node.isMesh){
                     if(node.name === 'Sphere'){
-                        sphereInit = node;
+                        sphere = node;
                     }
                     //https://discourse.threejs.org/t/three-js-no-shadow/14532/13
                     node.castShadow = true;
@@ -157,6 +169,7 @@
         controls.minDistance = 1;
         controls.maxDistance = 10;
         controls.maxPolarAngle = Math.PI / 2;
+        controls.target.set(0, 1.5, 0);
 
         // dat.GUI
         const gui = new GUI({ autoPlace: false });
@@ -182,14 +195,16 @@
         cylinderFolder.add(cylinder.position, 'z', 0, 10).name('pos z').listen();
         cylinderFolder.open();
 
-        const arrowOrigin = new THREE.Vector3();
-        const arrowLength = 1;
-        const arrowColor = 0xff0000;
-        const arrow = new THREE.ArrowHelper(new THREE.Vector3(1, 0, 0), arrowOrigin, arrowLength, arrowColor);
-        scene.add(arrow);
+        // ArrowHelper(dir: Vector3, origin: Vector3, length: Number, hex: Number, ...)
+        const arrowV = new THREE.ArrowHelper(new THREE.Vector3(1, 0, 0), new THREE.Vector3(), 1, 0xff0000);
+        const arrowVc = new THREE.ArrowHelper(new THREE.Vector3(1, 0, 0), new THREE.Vector3(), 1, 0xff0000);
+        const arrowR = new THREE.ArrowHelper(new THREE.Vector3(1, 0, 0), new THREE.Vector3(), 1, 0x00ff00);
+        const arrowR1 = new THREE.ArrowHelper(new THREE.Vector3(1, 0, 0), new THREE.Vector3(), 1, 0x00ff00);
+        const arrowW = new THREE.ArrowHelper(new THREE.Vector3(1, 0, 0), new THREE.Vector3(), 1, 0x0000ff);
+        scene.add(arrowV, arrowVc, arrowR, arrowR1, arrowW);
 
         const offsetA = new THREE.Vector3(1, 1, 1);
-        const paramA = { r: 1 };
+        const paramA = { r: 1.5 };
         const pointFolder = gui.addFolder('r offset');
         pointFolder.add(paramA, 'r', -2, 2, 0.1).listen();
         pointFolder.open();
@@ -207,8 +222,9 @@
         objFolder.add(obj, 'y_val').listen();
         objFolder.open();
         
-        const dt = 1/60;
+        const dt = 1/60;  // requestAnimationFrame() -> ~60 FPS 
         const dataDiv = document.querySelector('#data');
+        let otd = true;
         const animate = () => {
             // set the aspect of the camera to the aspect of the canvas's display size:
             resizeRendererToDisplaySize(renderer);
@@ -218,42 +234,68 @@
             // Quaternions are a mathematical representation of 3D rotations that avoid
             // some of the limitations and issues associated with Euler angles, such as gimbal lock.
 
-            const A1 = new THREE.Vector3();
-            sphereInit.getWorldPosition(A1);
+            // R1: position of some point A, with offset r, before dt
+            const R1 = new THREE.Vector3();
+            sphere.getWorldPosition(R1);
             const C1 = new THREE.Vector3();
             cylinder.getWorldPosition(C1);
-            A1.subVectors(A1, C1);
-            A1.x *= paramA.r;
-            A1.y *= paramA.r;
-            A1.addVectors(A1, C1);
+            R1.subVectors(R1, C1);
+            R1.x *= paramA.r;
+            R1.y *= paramA.r;
+            R1.addVectors(R1, C1);
+            arrowR1.setDirection(R1.clone().normalize());
+            arrowR1.setLength(R1.clone().length());
             
             cylinder.rotation.y += paramV.w*dt;
             cylinder.position.x += paramV.x;
             cylinder.position.y += paramV.y;
             
-            const A2 = new THREE.Vector3();
-            sphereInit.getWorldPosition(A2);
+            // R2: position of A, after dt
+            const R2 = new THREE.Vector3();
+            sphere.getWorldPosition(R2);
             const C2 = new THREE.Vector3();
             cylinder.getWorldPosition(C2);
-            A2.subVectors(A2, C2);
-            A2.x *= paramA.r;
-            A2.y *= paramA.r;
-            A2.addVectors(A2, C2);
+            R2.subVectors(R2, C2);
+            R2.x *= paramA.r;
+            R2.y *= paramA.r;
+            R2.addVectors(R2, C2);
 
-            const velV = new THREE.Vector3();
-            //const velV = new THREE.Vector3();
-            velV.subVectors(A2, A1).divideScalar(dt);
-            const hatT = velV.clone().normalize();
+            const V = new THREE.Vector3();
+            V.subVectors(R2, R1).divideScalar(dt);
+            const hatT = V.clone().normalize();
+            arrowV.position.set(...R2);
+            arrowV.setDirection(hatT);
+            arrowV.setLength(0.5 * V.length());
 
-            arrow.position.set(...A2);
-            arrow.setDirection(hatT);
-            arrow.setLength(0.5 * velV.length());
+            const Vc = new THREE.Vector3();
+            Vc.subVectors(C2, C1).divideScalar(dt);
+        
+            C2.z += 1;
+            const R = R2.clone().sub(C2);
+            arrowR.position.set(...C2);
+            arrowR.setDirection(R.clone().normalize());
+            arrowR.setLength(R.length());
 
-            dataDiv.innerHTML  = `&omega; = ${paramV.w.toFixed(3)}<br/>`;
-            dataDiv.innerHTML += `velV.length(): ${velV.length().toFixed(3)}`;
-            //dataDiv.innerHTML =  `Point A: x = ${rotatedPointA.x.toFixed(3)}, y = ${rotatedPointA.y.toFixed(3)}, z = ${rotatedPointA.z.toFixed(3)}<br/>`;
-            //dataDiv.innerHTML += `Sphere:&nbsp; x = ${A3.x.toFixed(3)}, y = ${A3.y.toFixed(3)}, z = ${A3.z.toFixed(3)}`;
+            arrowVc.position.set(...C2);
+            arrowVc.setDirection(Vc.clone().normalize());
+            arrowVc.setLength(Vc.length());
 
+            // V: Velocity of A
+            // Vc: Velocity of the cylinder's center
+            // W = (R x V)/R^2
+            const W = R.clone().cross(V.clone().sub(Vc)).divideScalar(R.dot(R));
+            arrowW.position.set(...C2);
+            arrowW.setDirection(W.clone().normalize());
+            arrowW.setLength(W.length())
+
+            dataDiv.innerHTML  = `<i>&omega;</i> = ${paramV.w.toFixed(3)} 1/s, &nbsp; R = ${R.length().toFixed(3)} m<br/>`;
+            dataDiv.innerHTML += `|<b><i>V</i></b>|: ${V.length().toFixed(3)} m/s, &nbsp; `;
+            dataDiv.innerHTML += `|<b><i>&omega;</i></b>|: ${W.length().toFixed(3)}<br/>`;
+            
+            if(otd){
+                console.log(R, V, W);
+                otd = false;
+            }
             controls.update();
             requestAnimationFrame(animate);
             renderer.render(scene, camera);
