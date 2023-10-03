@@ -145,7 +145,8 @@
             scene.add(cylinder);
         }
         await addModel();
-        cylinder.position.y = 2;
+        const pointA = sphereInit.getWorldPosition(new THREE.Vector3())
+        //cylinder.position.y = 2;
         cylinder.rotation.x = Math.PI/2;
 
         // Orbit Controls
@@ -183,25 +184,17 @@
         cylinderFolder.add(cylinder.position, 'z', 0, 10).name('pos z').listen();
         cylinderFolder.open();
 
-        // set pointA to the update position of the sphere@glb (embedded)
-        let pointA = new THREE.Vector3(0,0,0)
-        sphereInit.getWorldPosition(pointA);
-        const sphereG = new THREE.SphereGeometry(0.1, 12, 8); 
-        const sphereM = new THREE.MeshBasicMaterial({ color: 0xffff00 }); 
-        let sphere = new THREE.Mesh(sphereG, sphereM);
-        // assign the sphere position to the pointA values
-        sphere.position.set(...pointA);
-        sphere.rotation.x = Math.PI/2;
-        scene.add(sphere);
-
-        const arrowOrigin = new THREE.Vector3(0, 0, 0); // Point A's position
-        const arrowLength = 1; // Initial length (adjust as needed)
-        const arrowColor = 0xff0000; // Red color (adjust as needed)
+        const arrowOrigin = new THREE.Vector3();
+        const arrowLength = 1;
+        const arrowColor = 0xff0000;
         const arrow = new THREE.ArrowHelper(new THREE.Vector3(1, 0, 0), arrowOrigin, arrowLength, arrowColor);
         scene.add(arrow);
 
+        const offsetA = new THREE.Vector3(0, 0, 0);
         const pointFolder = gui.addFolder('Point A');
-        pointFolder.add(sphere.position, 'x', 0, 10).listen();
+        pointFolder.add(offsetA, 'x', -2, 2, 0.1).name('x offset').listen();
+        pointFolder.add(offsetA, 'y', -2, 2, 0.1).name('y offset').listen();
+        pointFolder.add(offsetA, 'z', -2, 2, 0.1).name('z offset').listen();
         pointFolder.open();
 
         const objFolder = gui.addFolder('Misc');
@@ -215,19 +208,26 @@
             // set the aspect of the camera to the aspect of the canvas's display size:
             resizeRendererToDisplaySize(renderer);
 
-            const rotatedPointA = pointA.clone().applyEuler(cylinder.rotation);
+            //const rotatedPointA = pointA.clone().applyEuler(cylinder.rotation);
             // Under the hood, Three.js uses quaternions to represent rotations.
             // Quaternions are a mathematical representation of 3D rotations that avoid
             // some of the limitations and issues associated with Euler angles, such as gimbal lock.
 
-            const tMatrix = new THREE.Matrix4();
-            tMatrix.makeRotationFromEuler(cylinder.rotation);
-            //sphere.applyMatrix4(tMatrix);
-            sphere.position.set(rotatedPointA.x - pointA.x, rotatedPointA.y + pointA.y, rotatedPointA.z - pointA.z)
-            arrow.position.set(...rotatedPointA);
-            arrow.setDirection(new THREE.Vector3(1,1,0))
+            const A3 = new THREE.Vector3();
+            sphereInit.getWorldPosition(A3);
 
-            dataDiv.textContent = `Point A: x = ${sphere.position.x.toFixed(3)}, y = ${sphere.position.y.toFixed(3)}, z = ${sphere.position.z.toFixed(3)}`;
+            const hatT_ = new THREE.Vector3(1, 0, 0);
+            const hatT = hatT_.clone().applyEuler(cylinder.rotation);
+
+            const tA = new THREE.Vector3();
+            tA.addVectors(pointA, offsetA);
+            const rotatedPointA = tA.clone().applyEuler(cylinder.rotation);
+            arrow.position.set(...rotatedPointA);
+            //arrow.setDirection(new THREE.Vector3(1,1,0))
+            arrow.setDirection(hatT);
+
+            dataDiv.innerHTML =  `Point A: x = ${rotatedPointA.x.toFixed(3)}, y = ${rotatedPointA.y.toFixed(3)}, z = ${rotatedPointA.z.toFixed(3)}<br/>`;
+            dataDiv.innerHTML += `Sphere:&nbsp; x = ${A3.x.toFixed(3)}, y = ${A3.y.toFixed(3)}, z = ${A3.z.toFixed(3)}`;
             // Rotate the cylinder about the axis with the least moment of inertia (e.g., Y-axis).
             cylinder.rotation.y += 0.01; // Adjust the rotation speed as needed.
 
