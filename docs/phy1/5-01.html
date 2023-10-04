@@ -110,17 +110,15 @@
         const floorG = new THREE.BoxGeometry(floorSize.x, floorSize.y, floorSize.z);
         floorG.userData.obb = new OBB();
         floorG.userData.obb.halfSize.copy(floorSize).multiplyScalar(0.5);
-        const floorM = new THREE.MeshPhongMaterial({ color: 0x999999, depthWrite: true });
+        const floorM = new THREE.MeshPhongMaterial({ color: 0x999999, depthWrite: true, wireframe: false });
         const floor = new THREE.Mesh(floorG, floorM);
         floor.userData.obb = new OBB();
-        //floor.material.side = THREE.DoubleSide;
-        floor.rotation.x = -Math.PI/2;
+        floor.rotation.x = -Math.PI/2;  // Euler-Angle rotation
         floor.position.y = -1;
         floor.receiveShadow = true;
         scene.add(floor);
 
         // Check if the renderer's canvas is not already the size it is being displayed as, and if so, set its size.
-        // (probably from threejs.org)
         function resizeRendererToDisplaySize(renderer) {
             const width = window.innerWidth;
             const height = window.innerHeight;
@@ -171,12 +169,11 @@
         await addModel();
         cylinder.position.y = 2;
         cylinder.rotation.x = Math.PI/2;
-        const cylinderMeshSize = cylinderMesh.geometry.boundingBox.max;
         cylinder.geometry = cylinderMesh.geometry;
         cylinder.geometry.userData.obb = new OBB();
+        const cylinderMeshSize = cylinderMesh.geometry.boundingBox.max;
         cylinder.geometry.userData.obb.halfSize.copy(cylinderMeshSize).multiplyScalar(0.7);
         cylinder.userData.obb = new OBB();
-        console.log(cylinder.userData.obb);
         const collidableObjects = [floor, cylinder];
 
         // Orbit Controls
@@ -190,20 +187,83 @@
         controls.maxPolarAngle = Math.PI / 2;
         controls.target.set(0, 1.5, 0);
 
+        const label = (text, font) => {
+            const bitmap = document.createElement('canvas');  // dummy
+            bitmap.width = 80;
+            bitmap.height = 100;
+            const bitmapC = bitmap.getContext('2d');
+            bitmapC.font = font;
+            bitmapC.fillStyle = 'white';
+            bitmapC.fillText(text, 20, 70);
+            //bitmapC.strokeStyle = 'black';
+            //bitmapC.strokeText('X', 0, 20);
+            const textT = new THREE.CanvasTexture(bitmap);
+            const textG = new THREE.PlaneGeometry(0.5, 0.5);
+            const textM = new THREE.MeshLambertMaterial({ map:textT, transparent:true });
+            const textMesh = new THREE.Mesh(textG, textM);
+            textMesh.material.side = THREE.DoubleSide;
+            return textMesh;
+        }
+
+        // Origin
+        const worldOrigin = new THREE.Vector3();
+        const dirX = new THREE.Vector3(1, 0, 0);
+        const arrowX = new THREE.ArrowHelper(new THREE.Vector3(1, 0, 0), worldOrigin, 0.7, 0xff0000);
+        const arrowY = new THREE.ArrowHelper(new THREE.Vector3(0, 1, 0), worldOrigin, 0.7, 0x00ff00);
+        const arrowZ = new THREE.ArrowHelper(new THREE.Vector3(0, 0, 1), worldOrigin, 0.7, 0x0000ff);
+        scene.add(arrowX, arrowY, arrowZ);
+        const textX = label('X', 'Bold 40px Arial');
+        const textY = label('Y', 'Bold 40px Arial');
+        const textZ = label('Z', 'Bold 40px Arial');
+        scene.add(textX, textY, textZ);
+        textX.position.set(0.7, 0.2, 0);
+        textY.position.set(0, 0.7, 0);
+        textZ.position.set(0, 0.2, 0.7);
+
+        // CIR/ICR
+        const cirG = new THREE.SphereGeometry(0.05, 12, 8); 
+        const cirM = new THREE.MeshBasicMaterial({ color: 0xffff00 }); 
+        const cir = new THREE.Mesh(cirG, cirM);
+        scene.add(cir);
+
+        // Arrows
+        // ArrowHelper(dir: Vector3, origin: Vector3, length: Number, hex: Number, ...)
+        const arrowV  = new THREE.ArrowHelper(dirX, worldOrigin, 1, 0xff0000);  // Point A Velocity, 'Sphere' in the scene
+        const arrowVc = new THREE.ArrowHelper(dirX, worldOrigin, 1, 0xff0000);  // Cylinder Velocity
+        const arrowR  = new THREE.ArrowHelper(dirX, worldOrigin, 1, 0x00ff00);  // Vector rel A-CylinderCenter
+        const arrowR1 = new THREE.ArrowHelper(dirX, worldOrigin, 1, 0x00ff00);  // point A position at t1
+        const arrowW  = new THREE.ArrowHelper(dirX, worldOrigin, 1, 0x0000ff);  // Angular Velocity Vector
+        scene.add(arrowV, arrowVc, arrowR, arrowW);
+        //scene.add(arrowR1);
+        const rayHelper = new THREE.ArrowHelper(dirX, worldOrigin, 8, 0x00ffff);
+        scene.add(rayHelper);
+        
+        // Box perpendicular to Vc: Used for raycasting to determine the ICR (Instantaneous Center of Rotation)
+        // The interception of a ray coming perpendicular to V with this box determines the ICR
+        const boxG = new THREE.BoxGeometry(0.01, 10, 0.01); 
+        const boxM = new THREE.MeshBasicMaterial({ color:0x0f0f0f, wireframe: false }); 
+        const perpVcBox = new THREE.Mesh(boxG, boxM); 
+        //perpVcBox.material.side = THREE.DoubleSide;
+        scene.add(perpVcBox);
+        perpVcBox._axis = new THREE.Vector3();
+        perpVcBox.setDirection = function(dir){
+            // Taken from https://github.com/mrdoob/three.js/blob/master/src/helpers/ArrowHelper.js
+            // dir is assumed to be normalized
+            if(dir.y > 0.99999){
+                this.quaternion.set(0, 0, 0, 1);
+            } else if (dir.y < -0.99999){
+                this.quaternion.set(1, 0, 0, 0);
+            } else {
+                this._axis.set(dir.z, 0, -dir.x).normalize();
+                const radians = Math.acos(dir.y);
+                this.quaternion.setFromAxisAngle(this._axis, radians);
+            }
+        }
+
         // dat.GUI
         const gui = new GUI({ autoPlace: false });
         gui.domElement.id = 'gui';
         gui_container.appendChild(gui.domElement);
-        
-        // ArrowHelper(dir: Vector3, origin: Vector3, length: Number, hex: Number, ...)
-        const arrowV = new THREE.ArrowHelper(new THREE.Vector3(1, 0, 0), new THREE.Vector3(), 1, 0xff0000);
-        const arrowVc = new THREE.ArrowHelper(new THREE.Vector3(1, 0, 0), new THREE.Vector3(), 1, 0xff0000);
-        const arrowR = new THREE.ArrowHelper(new THREE.Vector3(1, 0, 0), new THREE.Vector3(), 1, 0x00ff00);
-        const arrowR1 = new THREE.ArrowHelper(new THREE.Vector3(1, 0, 0), new THREE.Vector3(), 1, 0x00ff00);
-        const arrowW = new THREE.ArrowHelper(new THREE.Vector3(1, 0, 0), new THREE.Vector3(), 1, 0x0000ff);
-        scene.add(arrowV, arrowVc, arrowR, arrowW);
-        //scene.add(arrowR1);
-
         const offsetA = new THREE.Vector3(1, 1, 1);
         const paramA = { r: 1.5 };
         const pointFolder = gui.addFolder('r offset');
@@ -212,6 +272,7 @@
 
         const paramFolder = gui.addFolder('V');
         const paramV = { w: 2, x: 0.0, y: 0.0 }
+        const euler = { x: 0, y: 0, z: 0 };
         paramFolder.add(paramV, 'w', -5, 5, 0.1).listen();
         paramFolder.add(paramV, 'x', -0.05, 0.05, 0.001).listen();
         paramFolder.add(paramV, 'y', -0.05, 0.05, 0.001).listen();
@@ -249,12 +310,7 @@
             // set the aspect of the camera to the aspect of the canvas's display size:
             resizeRendererToDisplaySize(renderer);
 
-            //const rotatedPointA = pointA.clone().applyEuler(cylinder.rotation);
-            // Under the hood, Three.js uses quaternions to represent rotations.
-            // Quaternions are a mathematical representation of 3D rotations that avoid
-            // some of the limitations and issues associated with Euler angles, such as gimbal lock.
-
-            // R1: position of some point A, with offset r, before dt
+            // R1: position of some point A ('sphere' in the scene), with offset r, before dt
             const R1 = new THREE.Vector3();
             sphere.getWorldPosition(R1);
             const C1 = new THREE.Vector3();
@@ -264,7 +320,7 @@
             R1.y *= paramA.r;
             R1.addVectors(R1, C1);
             arrowR1.setDirection(R1.clone().normalize());
-            arrowR1.setLength(R1.clone().length());
+            arrowR1.setLength(R1.length());
 
             // https://github.com/mrdoob/three.js/blob/master/examples/webgl_math_obb.html
             for(let i in collidableObjects){
@@ -282,7 +338,6 @@
             cylinder.rotation.y += paramV.w*dt;
             cylinder.position.x += paramV.x;
             
-
             // R2: position of A, after dt
             const R2 = new THREE.Vector3();
             sphere.getWorldPosition(R2);
@@ -321,10 +376,26 @@
             arrowW.setDirection(W.clone().normalize());
             arrowW.setLength(W.length())
 
+            // CIR/ICR
+            perpVcBox.position.set(...C2);
+            const perpVc = Vc.clone().applyEuler(new THREE.Euler(0, 0, Math.PI/2));
+            const perpV = V.clone().applyEuler(new THREE.Euler(0, 0, Math.PI/2));
+            // Under the hood, Three.js uses quaternions to represent rotations.
+            // Quaternions are a mathematical representation of 3D rotations that avoid
+            // some of the limitations and issues associated with Euler angles, such as gimbal lock.
+            perpVcBox.setDirection(perpVc.clone().normalize());
+            raycaster.set(R2, perpV);
+            const intersects = raycaster.intersectObject(perpVcBox);
+            rayHelper.setDirection(perpV.clone().normalize());
+            rayHelper.position.set(...R2);
+            if(intersects[0]){
+                cir.position.set(...intersects[0].point);
+            }
+
             dataDiv.innerHTML  = `<i>&omega;</i> = ${paramV.w.toFixed(3)} 1/s, &nbsp; R = ${R.length().toFixed(3)} m<br/>`;
             dataDiv.innerHTML += `|<b><i>V</i></b>|: ${V.length().toFixed(3)} m/s, &nbsp; `;
             dataDiv.innerHTML += `|<b><i>&omega;</i></b>|: ${W.length().toFixed(3)}<br/>`;
-            
+
             if(otd){
                 //console.log(R, V, W);
                 otd = false;
