@@ -74,10 +74,11 @@
         import * as THREE from 'three';
         import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
         import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+        import { OBB } from 'three/addons/math/OBB.js';
         import { Sky } from 'three/addons/objects/Sky.js';
         import { GUI } from 'dat.gui'
 
-        // canvas, renderer, camera and scene
+        // canvas, renderer, camera, scene, etc.
         const canvas = document.querySelector('#c');
         const renderer = new THREE.WebGLRenderer({ canvas });
         renderer.shadowMap.enabled = true;
@@ -85,6 +86,7 @@
         camera.position.set(3.5, 2, 4.5);
         const scene = new THREE.Scene();
         scene.background = new THREE.Color(0x000000);
+        const raycaster = new THREE.Raycaster();
 
         // ambient light
         const ambientLight = new THREE.AmbientLight(0xffffff);
@@ -103,11 +105,17 @@
         scene.add(spotLight);
 
         // floor
-        const floorG = new THREE.PlaneGeometry(20, 20, 1, 1);
+        const floorSize = new THREE.Vector3(20, 20, 2)
+        // BoxGeometry(width: Float, height: Float, depth: Float, ...)
+        const floorG = new THREE.BoxGeometry(floorSize.x, floorSize.y, floorSize.z);
+        floorG.userData.obb = new OBB();
+        floorG.userData.obb.halfSize.copy(floorSize).multiplyScalar(0.5);
         const floorM = new THREE.MeshPhongMaterial({ color: 0x999999, depthWrite: true });
         const floor = new THREE.Mesh(floorG, floorM);
-        floor.material.side = THREE.DoubleSide;
+        floor.userData.obb = new OBB();
+        //floor.material.side = THREE.DoubleSide;
         floor.rotation.x = -Math.PI/2;
+        floor.position.y = -1;
         floor.receiveShadow = true;
         scene.add(floor);
 
@@ -119,7 +127,7 @@
             const needResize = canvas.width !== width || canvas.height !== height;
             if(needResize){
                 if(width < 800){
-                renderer.setSize(width - 50, height - 50, false); // canvas's drawingbuffer size (internal size)
+                renderer.setSize(width - 50, height - 100, false); // canvas's drawingbuffer size (internal size)
                 camera.aspect = canvas.clientWidth / canvas.clientHeight;
                 camera.updateProjectionMatrix();
                 } else {
@@ -141,6 +149,7 @@
         }
         let cylinder;
         let sphere;
+        let cylinderMesh;
         async function addModel(){
             const gltf = await modelLoader('./cylinder.glb');
             cylinder = gltf.scene;
@@ -148,6 +157,9 @@
                 if(node.isMesh){
                     if(node.name === 'Sphere'){
                         sphere = node;
+                    }
+                    if(node.name === 'Cylinder_1'){
+                        cylinderMesh = node;
                     }
                     //https://discourse.threejs.org/t/three-js-no-shadow/14532/13
                     node.castShadow = true;
@@ -159,6 +171,13 @@
         await addModel();
         cylinder.position.y = 2;
         cylinder.rotation.x = Math.PI/2;
+        const cylinderMeshSize = cylinderMesh.geometry.boundingBox.max;
+        cylinder.geometry = cylinderMesh.geometry;
+        cylinder.geometry.userData.obb = new OBB();
+        cylinder.geometry.userData.obb.halfSize.copy(cylinderMeshSize).multiplyScalar(0.7);
+        cylinder.userData.obb = new OBB();
+        console.log(cylinder.userData.obb);
+        const collidableObjects = [floor, cylinder];
 
         // Orbit Controls
         const controls = new OrbitControls(camera, renderer.domElement);
@@ -175,33 +194,15 @@
         const gui = new GUI({ autoPlace: false });
         gui.domElement.id = 'gui';
         gui_container.appendChild(gui.domElement);
-        const cameraFolder = gui.addFolder('Camera');
-        cameraFolder.add(camera.position, 'x', -10, 10).listen();
-        cameraFolder.add(camera.position, 'y', -10, 10).listen();
-        cameraFolder.add(camera.position, 'z', 0, 10).listen();
-        cameraFolder.open();
-
-        const lightFolder = gui.addFolder('Light');
-        lightFolder.add(spotLight, 'angle', 0, Math.PI).listen();
-        lightFolder.add(spotLight.shadow.camera, 'near', 0, 2).listen();
-        lightFolder.add(spotLight.shadow.camera, 'far', 0, 100).listen();
-        lightFolder.add(spotLight.position, 'x', -10, 10).listen();
-        lightFolder.add(spotLight.position, 'y', -10, 10).listen();
-        lightFolder.add(spotLight.position, 'z', 0, 10).listen();
-
-        const cylinderFolder = gui.addFolder('Cylinder');
-        cylinderFolder.add(cylinder.position, 'x', 0, 10).name('pos x').listen();
-        cylinderFolder.add(cylinder.position, 'y', 0, 10).name('pos y').listen();
-        cylinderFolder.add(cylinder.position, 'z', 0, 10).name('pos z').listen();
-        cylinderFolder.open();
-
+        
         // ArrowHelper(dir: Vector3, origin: Vector3, length: Number, hex: Number, ...)
         const arrowV = new THREE.ArrowHelper(new THREE.Vector3(1, 0, 0), new THREE.Vector3(), 1, 0xff0000);
         const arrowVc = new THREE.ArrowHelper(new THREE.Vector3(1, 0, 0), new THREE.Vector3(), 1, 0xff0000);
         const arrowR = new THREE.ArrowHelper(new THREE.Vector3(1, 0, 0), new THREE.Vector3(), 1, 0x00ff00);
         const arrowR1 = new THREE.ArrowHelper(new THREE.Vector3(1, 0, 0), new THREE.Vector3(), 1, 0x00ff00);
         const arrowW = new THREE.ArrowHelper(new THREE.Vector3(1, 0, 0), new THREE.Vector3(), 1, 0x0000ff);
-        scene.add(arrowV, arrowVc, arrowR, arrowR1, arrowW);
+        scene.add(arrowV, arrowVc, arrowR, arrowW);
+        //scene.add(arrowR1);
 
         const offsetA = new THREE.Vector3(1, 1, 1);
         const paramA = { r: 1.5 };
@@ -215,6 +216,25 @@
         paramFolder.add(paramV, 'x', -0.05, 0.05, 0.001).listen();
         paramFolder.add(paramV, 'y', -0.05, 0.05, 0.001).listen();
         paramFolder.open();
+
+        const cylinderFolder = gui.addFolder('Cylinder');
+        cylinderFolder.add(cylinder.position, 'x', 0, 10).name('pos x').listen();
+        cylinderFolder.add(cylinder.position, 'y', 0, 10).name('pos y').listen();
+        cylinderFolder.add(cylinder.position, 'z', 0, 10).name('pos z').listen();
+        cylinderFolder.open();
+
+        const cameraFolder = gui.addFolder('Camera');
+        cameraFolder.add(camera.position, 'x', -10, 10).listen();
+        cameraFolder.add(camera.position, 'y', -10, 10).listen();
+        cameraFolder.add(camera.position, 'z', 0, 10).listen();
+
+        const lightFolder = gui.addFolder('Light');
+        lightFolder.add(spotLight, 'angle', 0, Math.PI).listen();
+        lightFolder.add(spotLight.shadow.camera, 'near', 0, 2).listen();
+        lightFolder.add(spotLight.shadow.camera, 'far', 0, 100).listen();
+        lightFolder.add(spotLight.position, 'x', -10, 10).listen();
+        lightFolder.add(spotLight.position, 'y', -10, 10).listen();
+        lightFolder.add(spotLight.position, 'z', 0, 10).listen();
 
         const objFolder = gui.addFolder('Misc');
         const obj = { y_val: 10 };
@@ -245,11 +265,24 @@
             R1.addVectors(R1, C1);
             arrowR1.setDirection(R1.clone().normalize());
             arrowR1.setLength(R1.clone().length());
-            
+
+            // https://github.com/mrdoob/three.js/blob/master/examples/webgl_math_obb.html
+            for(let i in collidableObjects){
+                const object = collidableObjects[i];
+                object.userData.obb.copy(object.geometry.userData.obb);
+                object.userData.obb.applyMatrix4(object.matrixWorld);
+            }
+            const obb1 = cylinder.userData.obb;
+            const obb2 = floor.userData.obb;
+            if(!obb1.intersectsOBB(obb2)){
+                cylinder.position.y += paramV.y;
+            } else {
+                paramV.y = 0;
+            }
             cylinder.rotation.y += paramV.w*dt;
             cylinder.position.x += paramV.x;
-            cylinder.position.y += paramV.y;
             
+
             // R2: position of A, after dt
             const R2 = new THREE.Vector3();
             sphere.getWorldPosition(R2);
@@ -293,7 +326,7 @@
             dataDiv.innerHTML += `|<b><i>&omega;</i></b>|: ${W.length().toFixed(3)}<br/>`;
             
             if(otd){
-                console.log(R, V, W);
+                //console.log(R, V, W);
                 otd = false;
             }
             controls.update();
