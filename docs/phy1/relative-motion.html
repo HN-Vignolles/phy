@@ -59,15 +59,16 @@
     </script>
     <script src="https://unpkg.com/three@v0.157.0/examples/jsm/libs/ammo.wasm.js"></script>
     <script type="module">
+        // Based on https://github.com/mrdoob/three.js/blob/master/examples/physics_ammo_rope.html
         import * as THREE from 'three';
         import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
         import { GUI } from 'dat.gui';
 
-        // Based on https://github.com/mrdoob/three.js/blob/master/examples/physics_ammo_rope.html
         let canvas, renderer, camera, scene, controls;
         let collisionConfiguration, dispatcher, broadphase, solver, softBodySolver, physicsWorld, transformAux1;
-        const params = { R: 1.5, ex: 0, ey: 0, ez: 0.6, wy: 0 };
+        const params = { R: 1.5, R_ex: 0, R_ey: 0, R_ez: 0.6, R_wy: 0, r_ex: 0, r_ez: 0 };
 
+        let ball;
         const rigidBodies = [];
         const margin = 0.05;
         const gravityConstant = -9.8;
@@ -122,24 +123,24 @@
 
             const gui = new GUI();
             const paramsFolder = gui.addFolder('Params');
-            paramsFolder.add(params, 'R', 0, 2, 0.1).listen();
-            paramsFolder.add(params, 'ex', 0, Math.PI, 0.01).listen();
-            paramsFolder.add(params, 'ey', 0, Math.PI, 0.01).listen();
-            paramsFolder.add(params, 'ez', 0, Math.PI, 0.01).listen();
-            paramsFolder.add(params, 'wy', 0, Math.PI, 0.01).listen();
+            paramsFolder.add(params, 'R', 0, 2, 0.1).name('|R|').listen();
+            paramsFolder.add(params, 'R_ex', 0, Math.PI, 0.01).listen();
+            paramsFolder.add(params, 'R_ez', 0, Math.PI, 0.01).listen();
+            paramsFolder.add(params, 'R_wy', 0, Math.PI, 0.01).name('R_ωy').listen();
+            paramsFolder.add(params, 'r_ex', 0, Math.PI, 0.01).listen();
             paramsFolder.open();
         }
 
         function initPhysics(){
-            collisionConfiguration = new Ammo.btSoftBodyRigidBodyCollisionConfiguration();
-            dispatcher = new Ammo.btCollisionDispatcher(collisionConfiguration);
-            broadphase = new Ammo.btDbvtBroadphase();
-            solver = new Ammo.btSequentialImpulseConstraintSolver();
+            collisionConfiguration = new Ammo.btSoftBodyRigidBodyCollisionConfiguration();  // collision detection and response configuration
+            dispatcher = new Ammo.btCollisionDispatcher(collisionConfiguration);  // dispatches collision events to the appropriate collision objects
+            broadphase = new Ammo.btDbvtBroadphase();  // init: broad-phase collision detection algorithm using a dynamic bounding volume tree
+            solver = new Ammo.btSequentialImpulseConstraintSolver();  // Solver for constraints and forces
             softBodySolver = new Ammo.btDefaultSoftBodySolver();
             physicsWorld = new Ammo.btSoftRigidDynamicsWorld(dispatcher, broadphase, solver, collisionConfiguration, softBodySolver);
             physicsWorld.setGravity(new Ammo.btVector3(0, gravityConstant, 0));
-            physicsWorld.getWorldInfo().set_m_gravity( new Ammo.btVector3(0, gravityConstant, 0));
-            transformAux1 = new Ammo.btTransform();
+            physicsWorld.getWorldInfo().set_m_gravity(new Ammo.btVector3(0, gravityConstant, 0));
+            transformAux1 = new Ammo.btTransform();  // auxiliary transformation object (e.g. translations and rotations)
         }
 
         function createObjects(){
@@ -147,15 +148,15 @@
             const quat = new THREE.Quaternion();
 
             // Ground
-            pos.set(0, -0.5, 0);
-            quat.set(0, 0, 0, 1);
+            pos.set(0, -0.5, 0);  // position
+            quat.set(0, 0, 0, 1); // rotation
             const ground = createParalellepiped(40, 1, 40, 0, pos, quat, new THREE.MeshPhongMaterial({ color: 0x505050 }));
             ground.castShadow = true;
             ground.receiveShadow = true;
 
             const ballMass = 0.5;
             const ballRadius = 0.5;
-            const ball = new THREE.Mesh(new THREE.SphereGeometry(ballRadius, 20, 20), new THREE.MeshPhongMaterial({ color: 0x202020 }));
+            ball = new THREE.Mesh(new THREE.SphereGeometry(ballRadius, 20, 20), new THREE.MeshPhongMaterial({ color: 0x202020 }));
             ball.castShadow = true;
             ball.receiveShadow = true;
             const ballShape = new Ammo.btSphereShape(ballRadius);
@@ -167,18 +168,26 @@
 
             // Origin
             const worldOrigin = new THREE.Vector3();
+            const dirX = new THREE.Vector3(1, 0, 0);
             const arrowX = new THREE.ArrowHelper(new THREE.Vector3(1, 0, 0), worldOrigin, 0.7, 0xff0000);
             const arrowY = new THREE.ArrowHelper(new THREE.Vector3(0, 1, 0), worldOrigin, 0.7, 0x00ff00);
             const arrowZ = new THREE.ArrowHelper(new THREE.Vector3(0, 0, 1), worldOrigin, 0.7, 0x0000ff);
             scene.add(arrowX, arrowY, arrowZ);
 
             arrow_R = new Arrow(new THREE.Vector3(0, 1, 0), new THREE.Vector3(), 1, 0xff0000);
-            arrow_r = new Arrow(new THREE.Vector3(0, 1, 0), new THREE.Vector3(), 1, 0xf00000);
-            arrow_R.children.push(arrow_r);
-            const R = new THREE.Vector3(0, 1, 0).applyEuler(new THREE.Euler(0, 0, 0.5));
-            arrow_R.setDirection(R);
+            arrow_r = new Arrow(new THREE.Vector3(0, 1, 1), new THREE.Vector3(), 2, 0xf00000);
+            arrow_R.addSubArrow(arrow_r);
+            arrow_R.setDirection(new THREE.Vector3(0, 1, 0).applyEuler(new THREE.Euler(0, 0, 0.5)));
             scene.add(arrow_R);
-            console.log(arrow_R);
+            // Moving Frame
+            pos.set(0, 0, 0);
+            quat.set(0, 0, 0, 1);
+            const frame = createParalellepiped(1, 0.1, 1, 0, pos, quat, new THREE.MeshPhongMaterial({ color: 0xf05050 }));
+            frame.parent = arrow_R;
+            arrow_R.children.push(frame);
+            frame.position.set(arrow_R.endpoint.x + 0.5, arrow_R.endpoint.y + 0.1, arrow_R.endpoint.z);
+            frame.castShadow = true;
+            frame.receiveShadow = true;
         }
 
         function createParalellepiped(sx, sy, sz, mass, pos, quat, material){
@@ -190,17 +199,19 @@
         }
 
         function createRigidBody(threeObject, physicsShape, mass, pos, quat){
-            threeObject.position.copy(pos);
-            threeObject.quaternion.copy(quat);
+            threeObject.position.copy(pos);     // initial position and
+            threeObject.quaternion.copy(quat);  // rotation (orientation)
             const transform = new Ammo.btTransform();
             transform.setIdentity();
             transform.setOrigin(new Ammo.btVector3(pos.x, pos.y, pos.z));
             transform.setRotation(new Ammo.btQuaternion(quat.x, quat.y, quat.z, quat.w));
             const motionState = new Ammo.btDefaultMotionState(transform);
             const localInertia = new Ammo.btVector3(0, 0, 0);
+            // LocalInertia refers to the moment of inertia of an object with respect to 
+            // its local coordinate system or its center of mass.
             physicsShape.calculateLocalInertia(mass, localInertia);
             const rbInfo = new Ammo.btRigidBodyConstructionInfo(mass, motionState, physicsShape, localInertia);
-            const body = new Ammo.btRigidBody( rbInfo );
+            const body = new Ammo.btRigidBody(rbInfo);
             threeObject.userData.physicsBody = body;
             scene.add(threeObject);
             if(mass > 0){
@@ -209,6 +220,30 @@
                 body.setActivationState(4);
             }
             physicsWorld.addRigidBody(body);
+        }
+
+        // Moment of Inertia
+        // https://en.wikipedia.org/wiki/Parallel_axis_theorem#Tensor_generalization
+        // J_{ij} = I_{ij} + m (|R|^{2} \delta_{ij} - R_i R_j)
+        // Where I_{ij} is the ij component of the Inertia Tensor, and \delta_{ij} is the Kronecker delta. 
+        // For diagonal elements (when i = j), displacements perpendicular to the axis of rotation
+        // results in the above simplified version of the parallel axis theorem.
+        // Thank you ChatGPT:
+        function calculateCustomMomentOfInertia(body, axisDirection){
+            // Get the inertia tensor from the btRigidBody object.
+            const inertiaTensor = new Ammo.btMatrix3x3();
+            body.getCollisionShape().calculateLocalInertia(body.getMass(), inertiaTensor);
+            // Transform the custom axis direction to the local coordinate system of the body.
+            const localAxisDirection = new Ammo.btVector3(axisDirection.x, axisDirection.y, axisDirection.z);
+            localAxisDirection.normalize(); // Ensure it's a unit vector.
+            // Use the parallel axis theorem to calculate the moment of inertia around the custom axis.
+            const dSquared = localAxisDirection.dot(localAxisDirection);
+            const I_custom = new Ammo.btVector3(
+                inertiaTensor.getElement(0) + body.getMass() * (dSquared - localAxisDirection.x() * localAxisDirection.x()),
+                inertiaTensor.getElement(4) + body.getMass() * (dSquared - localAxisDirection.y() * localAxisDirection.y()),
+                inertiaTensor.getElement(8) + body.getMass() * (dSquared - localAxisDirection.z() * localAxisDirection.z())
+            );
+            return I_custom;
         }
 
         function animate(){
@@ -227,59 +262,81 @@
             constructor(
                 dir = new THREE.Vector3(0, 0, 1), 
                 origin = new THREE.Vector3(0, 0, 0),
-                length = 1, color = 0xffff00, headLength = length*0.2, headWidth = headLength*0.2,
-                subArrows = []
+                length = 1, color = 0xffff00, headLength = length*0.2, headWidth = headLength*0.2
             ){
-                super(dir, origin, length, color, headLength, headWidth);
-                this.subArrows = subArrows;
-                const quaternion = this.quaternion;  // Not sure about this (no pun intended)
-                const rotation = this.rotation;
-                function onRotationChange(){
-                    quaternion.setFromEuler(rotation, false);
-                    // update subArrows (rotation matrix)
+                super(dir.clone().normalize(), origin, length, color, headLength, headWidth);
+                this.subArrows = [];
+                this.length = length;
+                const updateSubArrows = () => {
+                    this.subArrows.forEach((arrow) => {
+                        // ...
+                    });
+                }
+                this.otd = 1;
+                const onRotationChange = () => {
+                    this.quaternion.setFromEuler(this.rotation, false);
+                    //updateSubArrows();
                 }
                 this.rotation._onChange(onRotationChange);
+            }
+            setLength(length, headLength = length*0.2, headWidth = headLength*0.2){
+                this.line.scale.set(1, Math.max(0.0001, length - headLength), 1);
+                this.line.updateMatrix();
+                this.cone.scale.set(headWidth, headLength, headWidth);
+                this.cone.position.y = length;
+                this.cone.updateMatrix();
+                this.length = length;
+                //this.updateChildren();
+                if(this.otd){
+                    console.log(this.children.slice(2));
+                    this.otd = 0;
+                }
+            }
+            addSubArrow(arrow){
+                this.children.push(arrow);  // for scene.add()
+                this.subArrows.push(arrow); // for arrow chains
+                arrow.parent = this;
+                this.updateChildren()
+            }
+            updateChildren(){
+                this.children.slice(2).forEach((obj) => {
+                    if(obj.parent){
+                        obj.position.set(...this.endpoint);
+                    }
+                })
+                //arrow.position.set(...this.endpoint);
+            }
+            get endpoint(){
+                return this.position.clone().add(new THREE.Vector3(0, 1, 0).applyQuaternion(this.quaternion));
             }
         }
 
         function updatePhysics(deltaTime){
-            arrow_R.rotation.x = params.ex;
+            arrow_R.rotation.x = params.R_ex;
             arrow_R.rotation.y += 0.05;
-            arrow_R.rotation.z = params.ez;
-            
-
-            // Hinge control
-            //hinge.enableAngularMotor( true, 1.5 * armMovement, 50 );
+            arrow_R.rotation.z = params.R_ez;
+            arrow_r.rotation.x = params.r_ex;
+            arrow_R.setLength(params.R)
 
             // Step world
             physicsWorld.stepSimulation(deltaTime, 10);
-
-            // Update rope
-            /*const softBody = rope.userData.physicsBody;
-            const ropePositions = rope.geometry.attributes.position.array;
-            const numVerts = ropePositions.length / 3;
-            const nodes = softBody.get_m_nodes();
-            let indexFloat = 0;
-            for ( let i = 0; i < numVerts; i ++ ) {
-                const node = nodes.at( i );
-                const nodePos = node.get_m_x();
-                ropePositions[ indexFloat ++ ] = nodePos.x();
-                ropePositions[ indexFloat ++ ] = nodePos.y();
-                ropePositions[ indexFloat ++ ] = nodePos.z();
-            }
-            rope.geometry.attributes.position.needsUpdate = true;*/
+            //ball.userData.physicsBody.applyForce(new Ammo.btVector3(0, 5, 0), new Ammo.btVector3());
 
             // Update rigid bodies
             for(let i = 0, il = rigidBodies.length; i < il; i ++){
                 const objThree = rigidBodies[i];
                 const objPhys = objThree.userData.physicsBody;
+                // The motion state represents the position and orientation of the object in the physics simulation at a specific time step.
                 const ms = objPhys.getMotionState();
                 if(ms){
+                    // If a motion state is available, it proceeds to update the position and orientation of the three.js object
+                    // to match the current state of the physics simulation.
                     ms.getWorldTransform(transformAux1);
                     const p = transformAux1.getOrigin();
                     const q = transformAux1.getRotation();
-                    objThree.position.set( p.x(), p.y(), p.z() );
-                    objThree.quaternion.set( q.x(), q.y(), q.z(), q.w() );
+                    objThree.position.set(p.x(), p.y(), p.z());
+                    objThree.quaternion.set(q.x(), q.y(), q.z(), q.w());
+                    // This ensures that the graphical representation of the object is synchronized with its physics simulation state.
                 }
             }
         }
