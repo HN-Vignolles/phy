@@ -32,7 +32,7 @@
             }
         }
         .stats {
-            color: lightgray;
+            color: black;
             font-family: monospace;
             position: absolute;
             top: 10px;
@@ -169,25 +169,28 @@
             // Origin
             const worldOrigin = new THREE.Vector3();
             const dirX = new THREE.Vector3(1, 0, 0);
+            const dirY = new THREE.Vector3(0, 1, 0);
             const arrowX = new THREE.ArrowHelper(new THREE.Vector3(1, 0, 0), worldOrigin, 0.7, 0xff0000);
             const arrowY = new THREE.ArrowHelper(new THREE.Vector3(0, 1, 0), worldOrigin, 0.7, 0x00ff00);
             const arrowZ = new THREE.ArrowHelper(new THREE.Vector3(0, 0, 1), worldOrigin, 0.7, 0x0000ff);
             scene.add(arrowX, arrowY, arrowZ);
 
-            arrow_R = new Arrow(new THREE.Vector3(0, 1, 0), new THREE.Vector3(), 1, 0xff0000);
-            arrow_r = new Arrow(new THREE.Vector3(0, 1, 1), new THREE.Vector3(), 2, 0xf00000);
-            arrow_R.addSubArrow(arrow_r);
-            arrow_R.setDirection(new THREE.Vector3(0, 1, 0).applyEuler(new THREE.Euler(0, 0, 0.5)));
-            scene.add(arrow_R);
+            arrow_R = new Arrow(dirY, new THREE.Vector3(), 1, 0xff0000);
+            arrow_r = new Arrow(dirY, new THREE.Vector3(), 2, 0xf00000);
+            arrow_r.parent = arrow_R;
+            arrow_R.children.push(arrow_r);
+            arrow_r.position.set(...arrow_R.endpoint);
             // Moving Frame
             pos.set(0, 0, 0);
             quat.set(0, 0, 0, 1);
             const frame = createParalellepiped(1, 0.1, 1, 0, pos, quat, new THREE.MeshPhongMaterial({ color: 0xf05050 }));
             frame.parent = arrow_R;
             arrow_R.children.push(frame);
-            frame.position.set(arrow_R.endpoint.x + 0.5, arrow_R.endpoint.y + 0.1, arrow_R.endpoint.z);
+            frame.position.set(...arrow_R.endpoint);
             frame.castShadow = true;
             frame.receiveShadow = true;
+            arrow_R.setDirection(new THREE.Vector3(0, 1, 0).applyEuler(new THREE.Euler(0, 0, 0.5)));
+            scene.add(arrow_R);
         }
 
         function createParalellepiped(sx, sy, sz, mass, pos, quat, material){
@@ -267,15 +270,9 @@
                 super(dir.clone().normalize(), origin, length, color, headLength, headWidth);
                 this.subArrows = [];
                 this.length = length;
-                const updateSubArrows = () => {
-                    this.subArrows.forEach((arrow) => {
-                        // ...
-                    });
-                }
                 this.otd = 1;
                 const onRotationChange = () => {
                     this.quaternion.setFromEuler(this.rotation, false);
-                    //updateSubArrows();
                 }
                 this.rotation._onChange(onRotationChange);
             }
@@ -286,37 +283,28 @@
                 this.cone.position.y = length;
                 this.cone.updateMatrix();
                 this.length = length;
-                //this.updateChildren();
-                if(this.otd){
-                    console.log(this.children.slice(2));
-                    this.otd = 0;
-                }
-            }
-            addSubArrow(arrow){
-                this.children.push(arrow);  // for scene.add()
-                this.subArrows.push(arrow); // for arrow chains
-                arrow.parent = this;
-                this.updateChildren()
+                this.updateChildren();
             }
             updateChildren(){
                 this.children.slice(2).forEach((obj) => {
-                    if(obj.parent){
-                        obj.position.set(...this.endpoint);
-                    }
+                    obj.position.set(...this.endpoint);
                 })
-                //arrow.position.set(...this.endpoint);
             }
             get endpoint(){
-                return this.position.clone().add(new THREE.Vector3(0, 1, 0).applyQuaternion(this.quaternion));
+                return this.position.clone().add(new THREE.Vector3(0, this.length, 0))
             }
         }
 
+        const dataDiv = document.querySelector('#data');
         function updatePhysics(deltaTime){
             arrow_R.rotation.x = params.R_ex;
             arrow_R.rotation.y += 0.05;
             arrow_R.rotation.z = params.R_ez;
             arrow_r.rotation.x = params.r_ex;
             arrow_R.setLength(params.R)
+            //arrow_r.position.set(arrow_R.endpoint.x + 0.5, arrow_R.endpoint.y + 0.1, arrow_R.endpoint.z);
+            //arrow_r.position.set(...arrow_R.endpoint)
+            dataDiv.innerHTML  = `${arrow_R.endpoint.x.toFixed(3)}, ${arrow_R.endpoint.y.toFixed(3)}, ${arrow_R.endpoint.z.toFixed(3)}`;
 
             // Step world
             physicsWorld.stepSimulation(deltaTime, 10);
