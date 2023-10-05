@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no" />
+    <title>Phy1</title>
+    <style>
+        [v-cloak] {
+            display: none;
+        }
+        body {
+            background-color: black;
+        }
+        .flex-container {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            justify-content: center;
+        }
+        .flex-item-left {
+            flex: 70%;
+            display: flex;
+            justify-content: center;
+        }
+        .flex-item-right {
+            flex: 20%
+        }
+        @media (max-width: 800px) {
+            .flex-item-left, .flex-item-right {
+                flex: 100%;
+                justify-content: center;
+            }
+        }
+        .stats {
+            color: lightgray;
+            font-family: monospace;
+            position: absolute;
+            top: 10px;
+            width: 100%;
+            text-align: center;
+            z-index: 100;
+            display: block;
+        }
+    </style>
+</head>
+<body>
+    <div id="app">
+        <div class="stats" id="data">data</div>
+        <canvas id="c"></canvas>
+    </div>
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@v0.157.0/build/three.module.js",
+                "three/addons/": "https://unpkg.com/three@v0.157.0/examples/jsm/",
+                "dat.gui": "https://unpkg.com/dat.gui@0.7.7/build/dat.gui.module.js"
+            }
+        }
+    </script>
+    <script src="https://unpkg.com/three@v0.157.0/examples/jsm/libs/ammo.wasm.js"></script>
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+        import { GUI } from 'dat.gui';
+
+        // Based on https://github.com/mrdoob/three.js/blob/master/examples/physics_ammo_rope.html
+        let canvas, renderer, camera, scene, controls;
+        let collisionConfiguration, dispatcher, broadphase, solver, softBodySolver, physicsWorld, transformAux1;
+        const params = { R: 1.5, ex: 0, ey: 0, ez: 0.6, wy: 0 };
+
+        const rigidBodies = [];
+        const margin = 0.05;
+        const gravityConstant = -9.8;
+        const clock = new THREE.Clock();
+        let arrow_R, arrow_r;
+        Ammo().then(function(AmmoLib){
+            Ammo = AmmoLib;
+            initGraphics();
+            onWindowResize();
+            initPhysics();
+            createObjects();
+            animate();
+        });
+
+        function initGraphics(){
+            canvas = document.querySelector('#c');
+            renderer = new THREE.WebGLRenderer({ canvas });
+            renderer.shadowMap.enabled = true;
+            camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.set(5, 2, 5);
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0xbfd0e5);
+
+            // Light
+            const ambientLight = new THREE.AmbientLight(0xbbbbbb);
+            scene.add(ambientLight);
+            const light = new THREE.DirectionalLight(0xffffff, 3);
+            light.position.set(-10, 10, 5);
+            light.castShadow = true;
+            const d = 10;
+            light.shadow.camera.left = - d;
+            light.shadow.camera.right = d;
+            light.shadow.camera.top = d;
+            light.shadow.camera.bottom = - d;
+            light.shadow.camera.near = 2;
+            light.shadow.camera.far = 50;
+            light.shadow.mapSize.x = 1024;
+            light.shadow.mapSize.y = 1024;
+            scene.add(light);
+            window.addEventListener('resize', onWindowResize);
+
+            // Orbit Controls
+            controls = new OrbitControls(camera, renderer.domElement);
+            controls.listenToKeyEvents(window);
+            //controls.enableDamping = true; // an animation loop is required when either damping or auto-rotation are enabled
+            controls.dampingFactor = 0.05;
+            controls.screenSpacePanning = true;
+            controls.minDistance = 1;
+            controls.maxDistance = 10;
+            controls.maxPolarAngle = Math.PI / 2;
+            controls.target.set(0, 1.5, 0);
+
+            const gui = new GUI();
+            const paramsFolder = gui.addFolder('Params');
+            paramsFolder.add(params, 'R', 0, 2, 0.1).listen();
+            paramsFolder.add(params, 'ex', 0, Math.PI, 0.01).listen();
+            paramsFolder.add(params, 'ey', 0, Math.PI, 0.01).listen();
+            paramsFolder.add(params, 'ez', 0, Math.PI, 0.01).listen();
+            paramsFolder.add(params, 'wy', 0, Math.PI, 0.01).listen();
+            paramsFolder.open();
+        }
+
+        function initPhysics(){
+            collisionConfiguration = new Ammo.btSoftBodyRigidBodyCollisionConfiguration();
+            dispatcher = new Ammo.btCollisionDispatcher(collisionConfiguration);
+            broadphase = new Ammo.btDbvtBroadphase();
+            solver = new Ammo.btSequentialImpulseConstraintSolver();
+            softBodySolver = new Ammo.btDefaultSoftBodySolver();
+            physicsWorld = new Ammo.btSoftRigidDynamicsWorld(dispatcher, broadphase, solver, collisionConfiguration, softBodySolver);
+            physicsWorld.setGravity(new Ammo.btVector3(0, gravityConstant, 0));
+            physicsWorld.getWorldInfo().set_m_gravity( new Ammo.btVector3(0, gravityConstant, 0));
+            transformAux1 = new Ammo.btTransform();
+        }
+
+        function createObjects(){
+            const pos = new THREE.Vector3();
+            const quat = new THREE.Quaternion();
+
+            // Ground
+            pos.set(0, -0.5, 0);
+            quat.set(0, 0, 0, 1);
+            const ground = createParalellepiped(40, 1, 40, 0, pos, quat, new THREE.MeshPhongMaterial({ color: 0x505050 }));
+            ground.castShadow = true;
+            ground.receiveShadow = true;
+
+            const ballMass = 0.5;
+            const ballRadius = 0.5;
+            const ball = new THREE.Mesh(new THREE.SphereGeometry(ballRadius, 20, 20), new THREE.MeshPhongMaterial({ color: 0x202020 }));
+            ball.castShadow = true;
+            ball.receiveShadow = true;
+            const ballShape = new Ammo.btSphereShape(ballRadius);
+            ballShape.setMargin(margin);
+            pos.set(-3, 2, 0);
+            quat.set(0, 0, 0, 1);
+            createRigidBody(ball, ballShape, ballMass, pos, quat);
+            ball.userData.physicsBody.setFriction(0.1);
+
+            // Origin
+            const worldOrigin = new THREE.Vector3();
+            const arrowX = new THREE.ArrowHelper(new THREE.Vector3(1, 0, 0), worldOrigin, 0.7, 0xff0000);
+            const arrowY = new THREE.ArrowHelper(new THREE.Vector3(0, 1, 0), worldOrigin, 0.7, 0x00ff00);
+            const arrowZ = new THREE.ArrowHelper(new THREE.Vector3(0, 0, 1), worldOrigin, 0.7, 0x0000ff);
+            scene.add(arrowX, arrowY, arrowZ);
+
+            arrow_R = new Arrow(new THREE.Vector3(0, 1, 0), new THREE.Vector3(), 1, 0xff0000);
+            arrow_r = new Arrow(new THREE.Vector3(0, 1, 0), new THREE.Vector3(), 1, 0xf00000);
+            arrow_R.children.push(arrow_r);
+            const R = new THREE.Vector3(0, 1, 0).applyEuler(new THREE.Euler(0, 0, 0.5));
+            arrow_R.setDirection(R);
+            scene.add(arrow_R);
+            console.log(arrow_R);
+        }
+
+        function createParalellepiped(sx, sy, sz, mass, pos, quat, material){
+            const threeObject = new THREE.Mesh(new THREE.BoxGeometry(sx, sy, sz, 1, 1, 1), material);
+            const shape = new Ammo.btBoxShape(new Ammo.btVector3(sx * 0.5, sy * 0.5, sz * 0.5));
+            shape.setMargin(margin);
+            createRigidBody(threeObject, shape, mass, pos, quat);
+            return threeObject;
+        }
+
+        function createRigidBody(threeObject, physicsShape, mass, pos, quat){
+            threeObject.position.copy(pos);
+            threeObject.quaternion.copy(quat);
+            const transform = new Ammo.btTransform();
+            transform.setIdentity();
+            transform.setOrigin(new Ammo.btVector3(pos.x, pos.y, pos.z));
+            transform.setRotation(new Ammo.btQuaternion(quat.x, quat.y, quat.z, quat.w));
+            const motionState = new Ammo.btDefaultMotionState(transform);
+            const localInertia = new Ammo.btVector3(0, 0, 0);
+            physicsShape.calculateLocalInertia(mass, localInertia);
+            const rbInfo = new Ammo.btRigidBodyConstructionInfo(mass, motionState, physicsShape, localInertia);
+            const body = new Ammo.btRigidBody( rbInfo );
+            threeObject.userData.physicsBody = body;
+            scene.add(threeObject);
+            if(mass > 0){
+                rigidBodies.push(threeObject);
+                // Disable deactivation
+                body.setActivationState(4);
+            }
+            physicsWorld.addRigidBody(body);
+        }
+
+        function animate(){
+            requestAnimationFrame(animate);
+            render();
+            //stats.update();
+        }
+
+        function render(){
+            const deltaTime = clock.getDelta();
+            updatePhysics(deltaTime);
+            renderer.render(scene, camera);
+        }
+
+        class Arrow extends THREE.ArrowHelper {
+            constructor(
+                dir = new THREE.Vector3(0, 0, 1), 
+                origin = new THREE.Vector3(0, 0, 0),
+                length = 1, color = 0xffff00, headLength = length*0.2, headWidth = headLength*0.2,
+                subArrows = []
+            ){
+                super(dir, origin, length, color, headLength, headWidth);
+                this.subArrows = subArrows;
+                const quaternion = this.quaternion;  // Not sure about this (no pun intended)
+                const rotation = this.rotation;
+                function onRotationChange(){
+                    quaternion.setFromEuler(rotation, false);
+                    // update subArrows (rotation matrix)
+                }
+                this.rotation._onChange(onRotationChange);
+            }
+        }
+
+        function updatePhysics(deltaTime){
+            arrow_R.rotation.x = params.ex;
+            arrow_R.rotation.y += 0.05;
+            arrow_R.rotation.z = params.ez;
+            
+
+            // Hinge control
+            //hinge.enableAngularMotor( true, 1.5 * armMovement, 50 );
+
+            // Step world
+            physicsWorld.stepSimulation(deltaTime, 10);
+
+            // Update rope
+            /*const softBody = rope.userData.physicsBody;
+            const ropePositions = rope.geometry.attributes.position.array;
+            const numVerts = ropePositions.length / 3;
+            const nodes = softBody.get_m_nodes();
+            let indexFloat = 0;
+            for ( let i = 0; i < numVerts; i ++ ) {
+                const node = nodes.at( i );
+                const nodePos = node.get_m_x();
+                ropePositions[ indexFloat ++ ] = nodePos.x();
+                ropePositions[ indexFloat ++ ] = nodePos.y();
+                ropePositions[ indexFloat ++ ] = nodePos.z();
+            }
+            rope.geometry.attributes.position.needsUpdate = true;*/
+
+            // Update rigid bodies
+            for(let i = 0, il = rigidBodies.length; i < il; i ++){
+                const objThree = rigidBodies[i];
+                const objPhys = objThree.userData.physicsBody;
+                const ms = objPhys.getMotionState();
+                if(ms){
+                    ms.getWorldTransform(transformAux1);
+                    const p = transformAux1.getOrigin();
+                    const q = transformAux1.getRotation();
+                    objThree.position.set( p.x(), p.y(), p.z() );
+                    objThree.quaternion.set( q.x(), q.y(), q.z(), q.w() );
+                }
+            }
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+    </script>
+</body>
