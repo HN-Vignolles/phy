@@ -62,18 +62,41 @@
         // Based on https://github.com/mrdoob/three.js/blob/master/examples/physics_ammo_rope.html
         import * as THREE from 'three';
         import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+        import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
         import { GUI } from 'dat.gui';
 
         let canvas, renderer, camera, scene, controls;
         let collisionConfiguration, dispatcher, broadphase, solver, softBodySolver, physicsWorld, transformAux1;
         const params = { R: 1, R_ex: 0, R_ey: 0, R_ez: 0, R_wy: 0, r_ex: 0, r_ez: 0, cube_friction: 0.1, cube_spinning_friction: 0.5 };
 
-        let ball, cube, rope, pivot, frame, pendulumConstraint;
+        let ball, cube, rope, pivot, frame, bowl, pendulumConstraint;
         const rigidBodies = [];
         const margin = 0.05;
-        const gravityConstant = 0;
+        const gravityConstant = -8;
         const clock = new THREE.Clock();
         let arrow_R, arrow_r;
+
+        // GLB
+        // https://discourse.threejs.org/t/most-simple-way-to-wait-loading-in-gltf-loader/13896/4
+        const loader = new GLTFLoader();
+        function modelLoader(url){
+            return new Promise((resolve, reject) => {
+                loader.load(url, data => resolve(data), null, reject);
+            });
+        }
+        async function addModel(path){
+            const gltf = await modelLoader(path);
+            const model = gltf.scene;
+            gltf.scene.traverse((node) => {
+                if(node.isMesh){
+                    node.castShadow = true;
+                    node.receiveShadow = true;
+                }
+            });
+            return model;
+        }
+        bowl = await addModel('./bowl.glb');
+
         Ammo().then(function(AmmoLib){
             Ammo = AmmoLib;
             initGraphics();
@@ -108,7 +131,6 @@
             light.shadow.mapSize.x = 1024;
             light.shadow.mapSize.y = 1024;
             scene.add(light);
-            window.addEventListener('resize', onWindowResize);
 
             // Orbit Controls
             controls = new OrbitControls(camera, renderer.domElement);
@@ -129,6 +151,8 @@
             paramsFolder.add(params, 'R_wy', 0, 0.1, 0.001).name('R_ωy').listen();
             paramsFolder.add(params, 'r_ex', 0, Math.PI, 0.01).listen();
             paramsFolder.open();
+
+            window.addEventListener('resize', onWindowResize);
         }
 
         function initPhysics(){
@@ -143,6 +167,52 @@
             transformAux1 = new Ammo.btTransform();  // auxiliary transformation object (e.g. translations and rotations)
         }
 
+        // https://stackoverflow.com/questions/72550511/ammojs-btbvhtrianglemeshshape-not-colliding?noredirect=1&lq=1
+        // https://sleekwp.dev/fun/io8/lib/sleek-entity.js
+        //=====================================================================
+        // - https://pybullet.org/Bullet/BulletFull/annotated.html
+        // - https://pybullet.org/Bullet/BulletFull/classbtTriangleIndexVertexArray.html
+        // btStridingMeshInterface inheritance:
+        //     btTriangleMesh --> btTriangleIndexVertexArray --> btStridingMeshInterface
+        //       +-> .AddTriangle()          +-> .addIndexedMesh()
+        //=====================================================================
+        // TODO: wireframe visualization of the Ammo.js triangle mesh shape in Three.js
+        //
+        function createConcaveShapeFromObj(model){
+            // TODO: translate vertices based on position
+            // Ammo.btTriangleMesh().addTriangleIndices() --> is not a function => using .toNonIndexed()
+            const position = model.children[1].position;
+            const geometry = model.children[1].geometry.toNonIndexed();
+            const threeVertices = geometry.attributes.position.array;
+            //const threeIndices = geometry.index.array;
+            
+            // Ammo.btStridingMeshInterface() --> not a constructor
+            // Ammo.btTriangleIndexVertexArray() --> not a constructor
+            //   => using Ammo.btTriangleMesh();
+            const ammoMesh = new Ammo.btTriangleMesh();
+            //console.log('threeIndices: ', threeIndices);
+            console.log('threeVertices: ', threeVertices);
+            let indexA, indexB, indexC;
+            const vectA = new Ammo.btVector3();
+            const vectB = new Ammo.btVector3();
+            const vectC = new Ammo.btVector3();
+            for(let i=0; i < threeVertices.length; i+=9){
+                //indexA = threeIndices[i];
+                //indexB = threeIndices[i+1];
+                //indexC = threeIndices[i+2];
+                //vectA.setX(threeVertices[indexA]); vectA.setY(threeVertices[indexA+1]); vectA.setZ(threeVertices[indexA+2]);
+                vectA.setX(threeVertices[i]); vectA.setY(threeVertices[i+1]); vectA.setZ(threeVertices[i+2]);
+                vectB.setX(threeVertices[i+3]); vectB.setY(threeVertices[i+4]); vectB.setZ(threeVertices[i+5]);
+                vectC.setX(threeVertices[i+6]); vectC.setY(threeVertices[i+7]); vectC.setZ(threeVertices[i+8]);
+                ammoMesh.addTriangle(vectA, vectB, vectC, false);
+            }
+            // btBvhTriangleMeshShape() --> objects fall through
+            // btTriangleMeshShape(), btConcaveShape(), btCollisionShape() --> no constructors in IDL
+            var shape = new Ammo.btConvexTriangleMeshShape(ammoMesh, true);
+            shape.setMargin(0.05);
+            return shape;
+        }
+    
         function createObjects(){
             const pos = new THREE.Vector3();
             const quat = new THREE.Quaternion();
@@ -164,7 +234,6 @@
             scene.add(arrowX, arrowY, arrowZ);
 
             // Moving Frame
-            // TODO: switch arrow_R <-> frame hierarchy
             pos.set(0, 0, 0);
             quat.set(0, 0, 0, 1);
             arrow_R = new Arrow(dirY, new THREE.Vector3(), 1, 0xff0000);
@@ -172,7 +241,17 @@
             arrow_r.parent = arrow_R;
             arrow_r.userData.basePoint = new THREE.Vector3(0, 0, 0);
             arrow_R.children.push(arrow_r);
-            arrow_r.position.set(arrow_R.endpoint.x, arrow_R.endpoint.y, arrow_R.endpoint.z);
+            
+            //const bowlHullShape = createHullFromModel(bowl);
+            const bowlHullShape = createConcaveShapeFromObj(bowl)
+            // Create a physics body for the convex hull
+            //const physicsBody = createPhysicsBody(physicsWorld, convexHullShape);
+            //bowlHullShape.setMargin(0.001);
+            pos.set(0, 0, 0);
+            quat.set(0, 0, 0, 1);
+            const bowlMass = 0;
+            createRigidBody(bowl, bowlHullShape, bowlMass, pos, quat);
+
             frame = createParalellepiped(1.5, 0.1, 1.5, 0, pos, quat, new THREE.MeshPhongMaterial({ color: 0xf05050 }));
             frame.parent = arrow_R;
             frame.userData.basePoint = new THREE.Vector3(0, 0, 0);
@@ -204,36 +283,6 @@
             ball.userData.physicsBody.setFriction(0.8);
             ball.userData.physicsBody.setRollingFriction(10);
             ball.userData.physicsBody.setAnisotropicFriction(10);
-            console.log('Ball physics.Body: ', ball.userData.physicsBody)
-
-            // Pendulum constraint
-            const pivotWorldPos = new THREE.Vector3();
-            pivot.getWorldPosition(pivotWorldPos);
-            const bobWorldPos = ball.position.clone();
-            const bobRelPos = bobWorldPos.clone().sub(pivotWorldPos).multiplyScalar(1);
-            console.log('R endpoint: ', ...arrow_R.endpoint);
-            console.log('pivot world position: ', ...pivotWorldPos);
-            console.log('ball(bob) relative position: ', ...bobRelPos)
-            const pivotPos = new Ammo.btTransform();
-            const bobPos = new Ammo.btTransform();
-            const pivotToBob = new Ammo.btTransform();
-            const btVec = new Ammo.btVector3();
-            console.log(btVec);
-            pivotPos.setIdentity();
-            bobPos.setIdentity();
-            pivotToBob.setIdentity();
-            //pivotToBob.getBasis().setEulerZYX(0,0,-Math.PI/4);
-            //pivotPos.getBasis().setEulerZYX(0,0,-Math.PI/4);
-            pivotPos.setOrigin(new Ammo.btVector3(-pivotWorldPos.x, -pivotWorldPos.y*100, -pivotWorldPos.z*100));
-            bobPos.setOrigin(new Ammo.btVector3(-bobWorldPos.x, -bobWorldPos.y, -bobWorldPos.z));
-            pivotToBob.setOrigin(new Ammo.btVector3(bobRelPos.x, bobRelPos.y, bobRelPos.z));
-            //const constraint = new Ammo.btConeTwistConstraint(pivot.userData.physicsBody, ball.userData.physicsBody, pivotPos, pivotToBob);
-            btVec.setValue(pivotWorldPos.x, pivotWorldPos.y, pivotWorldPos.z);
-            //pendulumConstraint = new Ammo.btPoint2PointConstraint(ball.userData.physicsBody, btVec);
-            pendulumConstraint = new Ammo.btPoint2PointConstraint(ball.userData.physicsBody, pivot.userData.physicsBody, btVec, new Ammo.btVector3(...bobWorldPos));
-            //constraint.setLimit(Math.PI/4, Math.PI/4, 0);
-            //console.log(pendulumConstraint);
-            physicsWorld.addConstraint(pendulumConstraint, true);
 
             /* No spinningFriction yet implemented in Ammo.js
             pos.set(0, 4, 0);
@@ -321,7 +370,6 @@
                 length = 1, color = 0xffff00, headLength = length*0.2, headWidth = headLength*0.2
             ){
                 super(dir.clone().normalize(), origin, length, color, headLength, headWidth);
-                this.subArrows = [];
                 this.length = length;
                 this.otd = 1;
                 const onRotationChange = () => {
@@ -378,7 +426,7 @@
             // Step world
             physicsWorld.stepSimulation(deltaTime, 10);
             let ballRelPosC = new Ammo.btVector3(...ball.position.clone().normalize().multiplyScalar(-9.8));
-            ball.userData.physicsBody.applyForce(ballRelPosC, new Ammo.btVector3());
+            //ball.userData.physicsBody.applyForce(ballRelPosC, new Ammo.btVector3());
 
             // Update rigid bodies
             for(let i = 0, il = rigidBodies.length; i < il; i ++){
