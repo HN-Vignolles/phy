@@ -41,6 +41,13 @@
             z-index: 100;
             display: block;
         }
+        .overlay {
+            position: absolute;
+            z-index: 100;
+            font-family: 'Gill Sans', 'Gill Sans MT', Calibri, 'Trebuchet MS', sans-serif;
+            font-size: 1.5rem;
+            justify-content: center;
+        }
     </style>
 </head>
 <body>
@@ -66,8 +73,15 @@
         import { GUI } from 'dat.gui';
 
         let canvas, renderer, camera, scene, controls;
+        let canvasHalfWidth;
+        let canvasHalfHeight;
         let collisionConfiguration, dispatcher, broadphase, solver, softBodySolver, physicsWorld, transformAux1;
-        const params = { R: 1, R_ex: 0, R_ey: 0, R_ez: 0, R_wy: 0, r: 1, r_ex: 0, r_ez: 0, cube_friction: 0.1, cube_spinning_friction: 0.5 };
+        const params = { 
+            R: 1, R_ex: 0, R_ey: 0, R_ez: 0, R_wy: 0,
+            r: 2, r_ex: 0, r_ez: 0,
+            V: 1, V_ex: 0, V_ey: 0, V_ez: 0,
+            cube_friction: 0.1, cube_spinning_friction: 0.5
+        };
 
         const rigidBodies = [];
         const margin = 0.05;
@@ -107,6 +121,8 @@
 
         function initGraphics(){
             canvas = document.querySelector('#c');
+            canvasHalfWidth = canvas.width/2;
+            canvasHalfHeight = canvas.height/2;
             renderer = new THREE.WebGLRenderer({ canvas });
             renderer.shadowMap.enabled = true;
             camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
@@ -152,9 +168,13 @@
             paramsFolder.add(params, 'R', -4, 4, 0.1).name('|R|').listen();
             paramsFolder.add(params, 'R_ez', 0, Math.PI, 0.01).listen();
             paramsFolder.add(params, 'R_wy', -5, 5, 0.1).name('R_ωy').listen();
-            paramsFolder.add(params, 'r', 0, 1, 0.01).listen();
+            paramsFolder.add(params, 'r', 0, 2, 0.01).listen();
             paramsFolder.add(params, 'r_ex', 0, Math.PI, 0.01).listen();
             paramsFolder.add(params, 'r_ez', 0, Math.PI, 0.01).listen();
+            paramsFolder.add(params, 'V', 0, 1, 0.01).listen();
+            paramsFolder.add(params, 'V_ex', 0, Math.PI, 0.01).listen();
+            paramsFolder.add(params, 'V_ey', 0, Math.PI, 0.01).listen();
+            paramsFolder.add(params, 'V_ez', 0, Math.PI, 0.01).listen();
             paramsFolder.open();
 
             window.addEventListener('resize', onWindowResize);
@@ -219,7 +239,7 @@
         }
     
         let body, ball, cube, rope, pivot, frame, point_R, point_r, pendulumConstraint;
-        let arrow_R, arrow_r, arrow_W, arrow_WxR, arrow_WxWxR, line_CD, line_DR;
+        let arrow_R, arrow_r, arrow_W, arrow_WxR, arrow_WxWxR, arrow_V, line_CD, line_DR;
         function createObjects(){
             const pos = new THREE.Vector3();
             const quat = new THREE.Quaternion();
@@ -251,6 +271,7 @@
             quat.set(0, 0, 0, 1);
             arrow_R = new Arrow(dirY, new THREE.Vector3(), 1, 0x0);
             arrow_r = new Arrow(dirY, new THREE.Vector3(), 1, 0xf00000);
+            //arrow_V
             // Set position and rotation of arrow_r relative to arrow_R
             //  --->R
             //  --->r
@@ -278,6 +299,10 @@
             arrow_r.children.push(point_r);
             arrow_r.line.material.transparent = true;
             arrow_r.line.material.opacity = 0;
+            arrow_V = new Arrow(dirY, new THREE.Vector3(), 1, 0xf00000);
+            arrow_V.parent = arrow_r;
+            arrow_V.userData.basePoint = new THREE.Vector3(0, 0, 0);
+            arrow_r.children.push(arrow_V)
             // Pivot
             //pivot = createParalellepiped(0.5, 0.05, 0.5, 0, pos, quat, new THREE.MeshPhongMaterial({ color: 0x101010 }));
             //pivot.parent = arrow_R;
@@ -484,33 +509,46 @@
         const dataDiv = document.querySelector('#data');
         gravityConstant = 0;
         let arrow_dir = new THREE.Vector3();
-        let arrow_R_quat = new THREE.Quaternion();
+        let arrow_quat = new THREE.Quaternion();
         let direction = new THREE.Vector3(0, 1, 0);
         let proj = new THREE.Vector3();
         let worldPos = new THREE.Vector3();
         let W = new THREE.Vector3();
-        let P, Q;
+        let P, Q, U, V, Cor;
+        const label_W = document.body.appendChild(document.createElement("div"));
+        label_W.classList.add('overlay');
+        const label_WxR = document.body.appendChild(document.createElement("div"));
+        label_WxR.classList.add('overlay');
+        const label_WxWxR = document.body.appendChild(document.createElement("div"));
+        label_WxWxR.classList.add('overlay');
+        let overlayPos = new THREE.Vector3();
         function updatePhysics(deltaTime){
+            let overlayIntUpdate = true; //clock.elapsedTime % 0.25 > 0.125;
             W.set(0, params.R_wy, 0);
             arrow_R.rotation.x = params.R_ex;
             arrow_R.rotation.y += params.R_wy*deltaTime;
             arrow_R.rotation.z = params.R_ez;
             arrow_r.rotation.x = params.r_ex;
             arrow_r.rotation.z = params.r_ez;
+            arrow_V.rotation.x = params.V_ex;
+            arrow_V.rotation.y = params.V_ey;
+            arrow_V.rotation.z = params.V_ez;
             arrow_R.setLength(params.R);
             arrow_r.setLength(params.r);
+            arrow_V.setLength(params.V);
             arrow_W.setLength(W.y);
-
+            
             // arrow_R world direction -> arrow_dir
-            arrow_R.getWorldQuaternion(arrow_R_quat);
+            arrow_R.getWorldQuaternion(arrow_quat);
             arrow_dir.set(0, 1, 0);
-            arrow_dir.applyQuaternion(arrow_R_quat);
+            arrow_dir.applyQuaternion(arrow_quat);
             // P = arrow_dir*|R|
             P = arrow_dir.multiplyScalar(arrow_R.length).clone();
             // proj = proj_{direction} arrow_dir
             proj = arrow_dir.projectOnVector(direction);
             line_CD.updateEnd(proj);
             arrow_W.position.set(proj.x, proj.y, proj.z);
+            
             line_DR.updateStart(proj);
             point_R.getWorldPosition(worldPos);
             line_DR.updateEnd(worldPos);
@@ -519,12 +557,55 @@
             arrow_WxR.setLength(Q.length());
             arrow_WxR.setDirection(Q);
             arrow_WxR.position.set(worldPos.x, worldPos.y, worldPos.z);
-            // Q = WxWxR
-            Q = W.clone().cross(Q);
-            arrow_WxWxR.setLength(Q.length());
-            arrow_WxWxR.setDirection(Q.multiplyScalar(-1));
+            // U = WxWxR
+            U = W.clone().cross(Q);
+            arrow_WxWxR.setLength(U.length());
+            arrow_WxWxR.setDirection(U.multiplyScalar(-1));
             arrow_WxWxR.position.set(worldPos.x, worldPos.y, worldPos.z);
+
+            // Coriolis = -2WxV
+            arrow_V.getWorldQuaternion(arrow_quat);
+            arrow_dir.set(0, 1, 0);
+            arrow_dir.applyQuaternion(arrow_quat);
+            V = arrow_dir.multiplyScalar(arrow_V.length).clone();
+            Cor = W.clone().multiplyScalar(-2).cross(V);
             
+            if(overlayIntUpdate){
+                if(W.length() > 0.2){
+                    overlayPos.setFromMatrixPosition(arrow_W.cone.matrixWorld);
+                    overlayPos.project(camera);
+                    overlayPos.x = (overlayPos.x*canvasHalfWidth)+canvasHalfWidth;
+                    overlayPos.y = -(overlayPos.y*canvasHalfHeight)+canvasHalfHeight;
+                    label_W.style.left = `${overlayPos.x}px`;
+                    label_W.style.top = `${overlayPos.y}px`;
+                    label_W.innerHTML = '<b>&omega;</b>';
+                } else {
+                    label_W.innerHTML = '';
+                }
+                if(Q.length() > 0.1){
+                    overlayPos.setFromMatrixPosition(arrow_WxR.cone.matrixWorld);
+                    overlayPos.project(camera);
+                    overlayPos.x = (overlayPos.x*canvasHalfWidth)+canvasHalfWidth;
+                    overlayPos.y = -(overlayPos.y*canvasHalfHeight)+canvasHalfHeight;
+                    label_WxR.style.left = `${overlayPos.x}px`;
+                    label_WxR.style.top = `${overlayPos.y}px`;
+                    label_WxR.innerHTML = '<b>&omega;xR</b>';
+                } else {
+                    label_WxR.innerHTML = '';
+                }
+                if(U.length() > 0.1){
+                    overlayPos.setFromMatrixPosition(arrow_WxWxR.cone.matrixWorld);
+                    overlayPos.project(camera);
+                    overlayPos.x = (overlayPos.x*canvasHalfWidth)+canvasHalfWidth;
+                    overlayPos.y = -(overlayPos.y*canvasHalfHeight)+canvasHalfHeight;
+                    label_WxWxR.style.left = `${overlayPos.x}px`;
+                    label_WxWxR.style.top = `${overlayPos.y}px`;
+                    label_WxWxR.innerHTML = '<b>-&omega;x(&omega;xR)</b>';
+                } else {
+                    label_WxWxR.innerHTML = '';
+                }
+            }
+
             // sync moving frame in (Ammo) physicsWorld
             const btTransform = new Ammo.btTransform();
             //const worldPos = new THREE.Vector3();
@@ -567,6 +648,8 @@
             camera.aspect = window.innerWidth / window.innerHeight;
             camera.updateProjectionMatrix();
             renderer.setSize(window.innerWidth, window.innerHeight);
+            canvasHalfWidth = canvas.width/2;
+            canvasHalfHeight = canvas.height/2;
         }
     </script>
 </body>
