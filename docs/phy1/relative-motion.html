@@ -152,7 +152,7 @@
             paramsFolder.add(params, 'R', -4, 4, 0.1).name('|R|').listen();
             paramsFolder.add(params, 'R_ex', 0, Math.PI, 0.01).listen();
             paramsFolder.add(params, 'R_ez', 0, Math.PI, 0.01).listen();
-            paramsFolder.add(params, 'R_wy', 0, 0.1, 0.001).name('R_ωy').listen();
+            paramsFolder.add(params, 'R_wy', -5, 5, 0.1).name('R_ωy').listen();
             paramsFolder.add(params, 'r_ex', 0, Math.PI, 0.01).listen();
             paramsFolder.open();
 
@@ -217,8 +217,8 @@
             return shape;
         }
     
-        let body, ball, cube, rope, pivot, frame, pendulumConstraint;
-        let arrow_R, arrow_r, arrow_W, line_CD, line_DA;
+        let body, ball, cube, rope, pivot, frame, pointA, pendulumConstraint;
+        let arrow_R, arrow_r, arrow_W, arrow_WxR, line_CD, line_DA;
         function createObjects(){
             const pos = new THREE.Vector3();
             const quat = new THREE.Quaternion();
@@ -260,32 +260,37 @@
             arrow_r.userData.basePoint = new THREE.Vector3(0, 0, 0);
             arrow_R.children.push(arrow_r);
             //const bowlHullShape = createHullFromModel(bowl);
-            frame = createParalellepiped(1.5, 0.1, 1.5, 0, pos, quat, new THREE.MeshPhongMaterial({ color: 0xf05050 }));
+            frame = createParalellepiped(1.5, 0.1, 1.5, 0, pos, quat, new THREE.MeshPhongMaterial({ color: 0xf05050, transparent: true, opacity: 0.4 }));
             frame.parent = arrow_R;
-            frame.userData.basePoint = new THREE.Vector3(0, 0, 0);
+            frame.userData.basePoint = new THREE.Vector3(0, -0.06, 0);
             frame.castShadow = true;
             frame.receiveShadow = true;
             frame.userData.physicsBody.setFriction(10);
             arrow_R.children.push(frame);
+            pointA = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.1, 0.1, 1, 1, 1), new THREE.MeshPhongMaterial({ transparent: true, opacity: 0 }));
+            pointA.parent = arrow_R;
+            pointA.userData.basePoint = new THREE.Vector3(0, 0, 0);
+            arrow_R.children.push(pointA);
             // Pivot
-            pivot = createParalellepiped(0.5, 0.05, 0.5, 0, pos, quat, new THREE.MeshPhongMaterial({ color: 0x101010 }));
-            pivot.parent = arrow_R;
-            pivot.userData.basePoint = new THREE.Vector3(0, 6, 0);
-            pivot.castShadow = true;
-            pivot.receiveShadow = true;
-            arrow_R.children.push(pivot);
+            //pivot = createParalellepiped(0.5, 0.05, 0.5, 0, pos, quat, new THREE.MeshPhongMaterial({ color: 0x101010 }));
+            //pivot.parent = arrow_R;
+            //pivot.userData.basePoint = new THREE.Vector3(0, 6, 0);
+            //pivot.castShadow = true;
+            //pivot.receiveShadow = true;
+            //arrow_R.children.push(pivot);
             arrow_R.updateChildren();
             scene.add(arrow_R);
 
             pos.set(0, 1, 0);
             arrow_W = new Arrow(dirY, pos, 1, 0xff00ff);
             scene.add(arrow_W);
+            arrow_WxR = new Arrow(dirY, new THREE.Vector3(), 1, 0x0);
+            scene.add(arrow_WxR);
 
             line_CD = new Line(new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 5, 0), 5, 0x0);
             scene.add(line_CD);
             line_DA = new Line(new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 5, 0), 5, 0x0);
             scene.add(line_DA);
-            console.log(line_DA);
 
             // Ball
             pos.set(0, 4, 0);
@@ -467,32 +472,39 @@
 
         const dataDiv = document.querySelector('#data');
         gravityConstant = 0;
-        let arrow_R_dir = new THREE.Vector3();
+        let arrow_dir = new THREE.Vector3();
         let arrow_R_quat = new THREE.Quaternion();
         let direction = new THREE.Vector3(0, 1, 0);
         let proj = new THREE.Vector3();
         let worldPos = new THREE.Vector3();
+        let W = new THREE.Vector3();
+        let P, Q;
         function updatePhysics(deltaTime){
+            W.set(0, params.R_wy, 0);
             arrow_R.rotation.x = params.R_ex;
-            arrow_R.rotation.y += params.R_wy;
+            arrow_R.rotation.y += params.R_wy*deltaTime;
             arrow_R.rotation.z = params.R_ez;
             arrow_r.rotation.x = params.r_ex;
-            arrow_R.setLength(params.R)
+            arrow_R.setLength(params.R);
+            arrow_W.setLength(W.y);
 
             arrow_R.getWorldQuaternion(arrow_R_quat);
-            arrow_R_dir.set(0, 1, 0);
-            arrow_R_dir.applyQuaternion(arrow_R_quat);
-            dataDiv.innerHTML = `R_dir_quat: ${arrow_R_dir.x.toFixed(3)}, ${arrow_R_dir.y.toFixed(3)}, ${arrow_R_dir.z.toFixed(3)}<br/>`;
-            //dataDiv.innerHTML += `R_length: ${arrow_R.length.toFixed()}<br/>`;
-            proj = arrow_R_dir.multiplyScalar(arrow_R.length).projectOnVector(direction);
-            dataDiv.innerHTML += `proj: ${proj.x.toFixed(3)}, ${proj.y.toFixed(3)}, ${proj.z.toFixed(3)}<br/>`;
+            arrow_dir.set(0, 1, 0);
+            arrow_dir.applyQuaternion(arrow_R_quat);
+            P = arrow_dir.multiplyScalar(arrow_R.length).clone();
+            proj = arrow_dir.projectOnVector(direction);
             line_CD.updateEnd(proj);
             arrow_W.position.set(proj.x, proj.y, proj.z);
             line_DA.updateStart(proj);
-            frame.getWorldPosition(worldPos);
+            pointA.getWorldPosition(worldPos);
             line_DA.updateEnd(worldPos);
+            Q = W.clone().cross(P);
+            arrow_WxR.setLength(Q.length());
+            arrow_WxR.setDirection(Q);
+            arrow_WxR.position.set(worldPos.x, worldPos.y, worldPos.z);
             
-            // sync moving frame and pivot in (Ammo) physicsWorld
+            
+            // sync moving frame in (Ammo) physicsWorld
             const btTransform = new Ammo.btTransform();
             //const worldPos = new THREE.Vector3();
             frame.getWorldPosition(worldPos);
@@ -500,13 +512,8 @@
             btTransform.setOrigin(new Ammo.btVector3(worldPos.x, worldPos.y, worldPos.z));
             btTransform.setRotation(new Ammo.btQuaternion(...arrow_R.quaternion));
             frame.userData.physicsBody.setWorldTransform(btTransform);
-            pivot.getWorldPosition(worldPos);
-            btTransform.setIdentity();
-            btTransform.setOrigin(new Ammo.btVector3(worldPos.x, worldPos.y, worldPos.z));
-            btTransform.setRotation(new Ammo.btQuaternion(...arrow_R.quaternion));
-            pivot.userData.physicsBody.setWorldTransform(btTransform);
-            const btVec = new Ammo.btVector3(worldPos.x, worldPos.y, worldPos.z);
-            if(pendulumConstraint) pendulumConstraint.setPivotA(btVec);
+            //const btVec = new Ammo.btVector3(worldPos.x, worldPos.y, worldPos.z);
+            //pendulumConstraint.setPivotA(btVec);
             //dataDiv.innerHTML  = `R endpoint: ${arrow_R.endpoint.x.toFixed(3)}, ${arrow_R.endpoint.y.toFixed(3)}, ${arrow_R.endpoint.z.toFixed(3)}<br/>`;
             //dataDiv.innerHTML += `frame World Pos: ${frameWorldPos.x.toFixed(3)}, ${frameWorldPos.y.toFixed(3)}, ${frameWorldPos.z.toFixed(3)}<br/>`;
 
