@@ -69,12 +69,11 @@
         let collisionConfiguration, dispatcher, broadphase, solver, softBodySolver, physicsWorld, transformAux1;
         const params = { R: 1, R_ex: 0, R_ey: 0, R_ez: 0, R_wy: 0, r_ex: 0, r_ez: 0, cube_friction: 0.1, cube_spinning_friction: 0.5 };
 
-        let ball, cube, rope, pivot, frame, bowl, pendulumConstraint;
         const rigidBodies = [];
         const margin = 0.05;
-        const gravityConstant = -8;
+        let gravityConstant;
         const clock = new THREE.Clock();
-        let arrow_R, arrow_r;
+        let bowl;
 
         // GLB
         // https://discourse.threejs.org/t/most-simple-way-to-wait-loading-in-gltf-loader/13896/4
@@ -114,32 +113,37 @@
             camera.position.set(5, 4, 5);
             scene = new THREE.Scene();
             scene.background = new THREE.Color(0xbfd0e5);
+            scene.fog = new THREE.FogExp2(0xf0f0f0, 0.025);
 
             // Light
+            // DirectionalLight camera -> Orthographic
+            // SpotLight camera -> Perspective
             const ambientLight = new THREE.AmbientLight(0xbbbbbb);
             scene.add(ambientLight);
-            const light = new THREE.DirectionalLight(0xffffff, 3);
-            light.position.set(-10, 10, 5);
-            light.castShadow = true;
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 3);
+            directionalLight.position.set(-10, 10, 5);
+            directionalLight.castShadow = true;
             const d = 10;
-            light.shadow.camera.left = - d;
-            light.shadow.camera.right = d;
-            light.shadow.camera.top = d;
-            light.shadow.camera.bottom = - d;
-            light.shadow.camera.near = 2;
-            light.shadow.camera.far = 50;
-            light.shadow.mapSize.x = 1024;
-            light.shadow.mapSize.y = 1024;
-            scene.add(light);
+            directionalLight.shadow.camera.left = -d;
+            directionalLight.shadow.camera.right = d;
+            directionalLight.shadow.camera.top = d;
+            directionalLight.shadow.camera.bottom = -d;
+            directionalLight.shadow.camera.near = 2;
+            directionalLight.shadow.camera.far = 50;
+            directionalLight.shadow.mapSize.x = 1024;
+            directionalLight.shadow.mapSize.y = 1024;
+            scene.add(directionalLight);
+            const directionalLightHelper = new THREE.CameraHelper(directionalLight.shadow.camera);
+            //scene.add(directionalLightHelper);
 
             // Orbit Controls
             controls = new OrbitControls(camera, renderer.domElement);
             controls.listenToKeyEvents(window);
             //controls.enableDamping = true; // an animation loop is required when either damping or auto-rotation are enabled
-            controls.dampingFactor = 0.05;
+            //controls.dampingFactor = 0.05;
             controls.screenSpacePanning = true;
             controls.minDistance = 1;
-            controls.maxDistance = 10;
+            controls.maxDistance = 30;
             controls.maxPolarAngle = Math.PI / 2;
             controls.target.set(0, 1.5, 0);
 
@@ -178,7 +182,7 @@
         //=====================================================================
         // TODO: wireframe visualization of the Ammo.js triangle mesh shape in Three.js
         //
-        function createConcaveShapeFromObj(model){
+        function createHullFromModel(model){
             // TODO: translate vertices based on position
             // Ammo.btTriangleMesh().addTriangleIndices() --> is not a function => using .toNonIndexed()
             const position = model.children[1].position;
@@ -213,6 +217,8 @@
             return shape;
         }
     
+        let body, ball, cube, rope, pivot, frame, pendulumConstraint;
+        let arrow_R, arrow_r, arrow_W, line_CD, line_DA;
         function createObjects(){
             const pos = new THREE.Vector3();
             const quat = new THREE.Quaternion();
@@ -220,13 +226,19 @@
             // Ground
             pos.set(0, -0.5, 0);  // position
             quat.set(0, 0, 0, 1); // rotation
-            const ground = createParalellepiped(40, 1, 40, 0, pos, quat, new THREE.MeshPhongMaterial({ color: 0x505050 }));
-            ground.castShadow = true;
+            const groundM = new THREE.MeshPhongMaterial({ color: 0x555555 });
+            //const groundT = new THREE.TextureLoader().load("./ground-texture-1.jpg");
+            //groundT.wrapS = THREE.RepeatWrapping;
+            //groundT.wrapT = THREE.RepeatWrapping;
+            //groundT.repeat.set(4, 4);
+            //groundM.map = groundT;
+            const ground = createParalellepiped(40, 1, 40, 0, pos, quat, groundM);
             ground.receiveShadow = true;
+            const gridHelper = new THREE.GridHelper(20);
+            scene.add(gridHelper);
 
             // Origin
             const worldOrigin = new THREE.Vector3();
-            const dirX = new THREE.Vector3(1, 0, 0);
             const dirY = new THREE.Vector3(0, 1, 0);
             const arrowX = new THREE.ArrowHelper(new THREE.Vector3(1, 0, 0), worldOrigin, 0.7, 0xff0000);
             const arrowY = new THREE.ArrowHelper(new THREE.Vector3(0, 1, 0), worldOrigin, 0.7, 0x00ff00);
@@ -236,22 +248,18 @@
             // Moving Frame
             pos.set(0, 0, 0);
             quat.set(0, 0, 0, 1);
-            arrow_R = new Arrow(dirY, new THREE.Vector3(), 1, 0xff0000);
+            arrow_R = new Arrow(dirY, new THREE.Vector3(), 1, 0x0);
             arrow_r = new Arrow(dirY, new THREE.Vector3(), 2, 0xf00000);
+            // Set position and rotation of arrow_r relative to arrow_R
+            //  --->R
+            //  --->r
             arrow_r.parent = arrow_R;
+            // arrow_r's tail/origin = (arrow_R's head/endpoint + basePoint)
+            // updated using arrow_R.updateChildren()
+            // --->R--->r
             arrow_r.userData.basePoint = new THREE.Vector3(0, 0, 0);
             arrow_R.children.push(arrow_r);
-            
             //const bowlHullShape = createHullFromModel(bowl);
-            const bowlHullShape = createConcaveShapeFromObj(bowl)
-            // Create a physics body for the convex hull
-            //const physicsBody = createPhysicsBody(physicsWorld, convexHullShape);
-            //bowlHullShape.setMargin(0.001);
-            pos.set(0, 0, 0);
-            quat.set(0, 0, 0, 1);
-            const bowlMass = 0;
-            createRigidBody(bowl, bowlHullShape, bowlMass, pos, quat);
-
             frame = createParalellepiped(1.5, 0.1, 1.5, 0, pos, quat, new THREE.MeshPhongMaterial({ color: 0xf05050 }));
             frame.parent = arrow_R;
             frame.userData.basePoint = new THREE.Vector3(0, 0, 0);
@@ -260,7 +268,7 @@
             frame.userData.physicsBody.setFriction(10);
             arrow_R.children.push(frame);
             // Pivot
-            pivot = createParalellepiped(0.5, 0.1, 0.5, 0, pos, quat, new THREE.MeshPhongMaterial({ color: 0x101010 }));
+            pivot = createParalellepiped(0.5, 0.05, 0.5, 0, pos, quat, new THREE.MeshPhongMaterial({ color: 0x101010 }));
             pivot.parent = arrow_R;
             pivot.userData.basePoint = new THREE.Vector3(0, 6, 0);
             pivot.castShadow = true;
@@ -268,7 +276,17 @@
             arrow_R.children.push(pivot);
             arrow_R.updateChildren();
             scene.add(arrow_R);
-            
+
+            pos.set(0, 1, 0);
+            arrow_W = new Arrow(dirY, pos, 1, 0xff00ff);
+            scene.add(arrow_W);
+
+            line_CD = new Line(new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 5, 0), 5, 0x0);
+            scene.add(line_CD);
+            line_DA = new Line(new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 5, 0), 5, 0x0);
+            scene.add(line_DA);
+            console.log(line_DA);
+
             // Ball
             pos.set(0, 4, 0);
             quat.set(0, 0, 0, 1);
@@ -281,18 +299,21 @@
             ballShape.setMargin(margin);
             createRigidBody(ball, ballShape, ballMass, pos, quat);
             ball.userData.physicsBody.setFriction(0.8);
-            ball.userData.physicsBody.setRollingFriction(10);
-            ball.userData.physicsBody.setAnisotropicFriction(10);
+            ball.userData.physicsBody.setRollingFriction(0.3);
+            ball.userData.physicsBody.setAnisotropicFriction(1);
+            ball.userData.physicsBody.setDamping(0.1, 0.1); // linear damping, rotational damping
 
-            /* No spinningFriction yet implemented in Ammo.js
-            pos.set(0, 4, 0);
+            // No spinningFriction available
+            pos.set(0, 5, 0);
             quat.set(0, 0, 0, 1);
             const cubeMass = 0.5;
             const cubeSide = 0.5;
             cube = createParalellepiped(cubeSide, cubeSide, cubeSide, cubeMass, pos, quat, new THREE.MeshPhongMaterial({ color: 0xf02050 }));
             cube.castShadow = true;
             cube.receiveShadow = true;
-            cube.userData.physicsBody.setFriction(0.1);*/
+            cube.userData.physicsBody.setFriction(0.1);
+            cube.userData.physicsBody.setDamping(0.2, 0.1);
+            body = ball;
         }
 
         function createParalellepiped(sx, sy, sz, mass, pos, quat, material){
@@ -397,17 +418,83 @@
             }
         }
 
+        class Line extends THREE.Line {
+            constructor(start, end, scale, color){
+                const points = [start, end];
+                const material = new THREE.LineDashedMaterial({
+                    color: color,
+	                linewidth: 1,
+	                scale: scale,
+	                dashSize: 0.2,
+	                gapSize: 0.1,
+                });
+                const geometry = new THREE.BufferGeometry().setFromPoints(points);
+                super(geometry, material);
+                this.updateStart(start);
+                this.updateEnd(end);
+                this.computeLineDistances();
+            }
+            updateStart(startPoint){
+                this.geometry.attributes.position.array[0] = startPoint.x;
+                this.geometry.attributes.position.array[1] = startPoint.y;
+                this.geometry.attributes.position.array[2] = startPoint.z;
+                this.geometry.attributes.position.needsUpdate = true;
+                this.computeLineDistances();
+
+            }
+            updateEnd(endpoint){
+                this.geometry.attributes.position.array[3] = endpoint.x;
+                this.geometry.attributes.position.array[4] = endpoint.y;
+                this.geometry.attributes.position.array[5] = endpoint.z;
+                this.geometry.attributes.position.needsUpdate = true;
+                this.computeLineDistances();
+            }
+            get start(){
+                return new THREE.Vector3(
+                    this.geometry.attributes.position.array[0],
+                    this.geometry.attributes.position.array[1],
+                    this.geometry.attributes.position.array[2]
+                );
+            }
+            get end(){
+                return new THREE.Vector3(
+                    this.geometry.attributes.position.array[3],
+                    this.geometry.attributes.position.array[4],
+                    this.geometry.attributes.position.array[5]
+                );
+            }
+        }
+
         const dataDiv = document.querySelector('#data');
+        gravityConstant = 0;
+        let arrow_R_dir = new THREE.Vector3();
+        let arrow_R_quat = new THREE.Quaternion();
+        let direction = new THREE.Vector3(0, 1, 0);
+        let proj = new THREE.Vector3();
+        let worldPos = new THREE.Vector3();
         function updatePhysics(deltaTime){
             arrow_R.rotation.x = params.R_ex;
             arrow_R.rotation.y += params.R_wy;
             arrow_R.rotation.z = params.R_ez;
             arrow_r.rotation.x = params.r_ex;
             arrow_R.setLength(params.R)
+
+            arrow_R.getWorldQuaternion(arrow_R_quat);
+            arrow_R_dir.set(0, 1, 0);
+            arrow_R_dir.applyQuaternion(arrow_R_quat);
+            dataDiv.innerHTML = `R_dir_quat: ${arrow_R_dir.x.toFixed(3)}, ${arrow_R_dir.y.toFixed(3)}, ${arrow_R_dir.z.toFixed(3)}<br/>`;
+            //dataDiv.innerHTML += `R_length: ${arrow_R.length.toFixed()}<br/>`;
+            proj = arrow_R_dir.multiplyScalar(arrow_R.length).projectOnVector(direction);
+            dataDiv.innerHTML += `proj: ${proj.x.toFixed(3)}, ${proj.y.toFixed(3)}, ${proj.z.toFixed(3)}<br/>`;
+            line_CD.updateEnd(proj);
+            arrow_W.position.set(proj.x, proj.y, proj.z);
+            line_DA.updateStart(proj);
+            frame.getWorldPosition(worldPos);
+            line_DA.updateEnd(worldPos);
             
-            // sync moving frame and pivot in physicsWorld
+            // sync moving frame and pivot in (Ammo) physicsWorld
             const btTransform = new Ammo.btTransform();
-            const worldPos = new THREE.Vector3();
+            //const worldPos = new THREE.Vector3();
             frame.getWorldPosition(worldPos);
             btTransform.setIdentity();
             btTransform.setOrigin(new Ammo.btVector3(worldPos.x, worldPos.y, worldPos.z));
@@ -425,10 +512,11 @@
 
             // Step world
             physicsWorld.stepSimulation(deltaTime, 10);
-            let ballRelPosC = new Ammo.btVector3(...ball.position.clone().normalize().multiplyScalar(-9.8));
-            //ball.userData.physicsBody.applyForce(ballRelPosC, new Ammo.btVector3());
+            let tVect = body.position.clone().normalize().multiplyScalar(-6);
+            let bodyRelPosC = new Ammo.btVector3(...tVect);
+            body.userData.physicsBody.applyForce(bodyRelPosC, new Ammo.btVector3());
 
-            // Update rigid bodies
+            // Update all rigid bodies in (Three) scene
             for(let i = 0, il = rigidBodies.length; i < il; i ++){
                 const objThree = rigidBodies[i];
                 const objPhys = objThree.userData.physicsBody;
