@@ -3,11 +3,44 @@
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no" />
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@0.9.4/css/bulma.min.css">
     <title>Phy</title>
+    <style>
+        .center {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+    </style>
 </head>
 <body>
-    <ul>
-        <li><a href="./phy1/python.html">python</a></li>
-        <li><a href="./phy1/5-01.html">5-01</a></a></li>
-    </ul>
+    <section class="section has-background-black">
+        <div class="container">
+            <ul>
+                <li><a href="./phy1/python.html">python</a></li>
+                <li><a href="./phy1/5-01.html">5-01</a></a></li>
+            </ul>
+        </div>
+    </section>
+    <section class="section">
+        <div class="container">
+            <p>\(
+                \newcommand{\bf}{\mathbf}
+                \newcommand{\rr}{\hat{\mathbf{r}}}
+                \newcommand{\th}{\hat{\boldsymbol{\theta}}}
+                \begin{array}{rl} \bf{r} &= \cos\theta\bf{i} + \sin\theta\bf{j} \\
+                                     \th &= -\sin\theta\bf{i} + \cos\theta\bf{j} \\
+                                 d\rr/dt &= -\sin\theta\dot{\theta}\bf{i} + \cos\theta\dot{\theta}\bf{j} = \dot{\theta}\th \\
+                                 d\th/dt &= -\cos\theta\dot{\theta}\bf{i} - \sin\theta\dot{\theta}\bf{j} = -\dot{\theta}\rr \\
+                                  \bf{r} &= r\rr \\
+                                  \bf{v} &= \dot{r}\rr + r\dot{\theta}\th \\
+                                  \bf{a} &= \ddot{r}\rr + \dot{r}\dot{\theta}\th + \dot{r}\dot{\theta}\th + r(\ddot{\theta}\th + \dot{\theta}\dot{\th}) \\
+                                         &= \ddot{r}\rr + 2\dot{r}\dot{\theta}\th + r\dot{\theta}(-\dot{\theta}\rr) \\
+                                         &= (\ddot{r} - r\dot{\theta}^2)\rr + (r\ddot{\theta} + 2\dot{r}\dot{\theta})\th
+                \end{array}\)
+            </p>
+        </div>
+    </section>
+    <script src="https://polyfill.io/v3/polyfill.min.js?features=es6"></script>
+    <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
 </body>
