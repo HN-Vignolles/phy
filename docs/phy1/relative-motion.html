@@ -67,7 +67,7 @@
 
         let canvas, renderer, camera, scene, controls;
         let collisionConfiguration, dispatcher, broadphase, solver, softBodySolver, physicsWorld, transformAux1;
-        const params = { R: 1, R_ex: 0, R_ey: 0, R_ez: 0, R_wy: 0, r_ex: 0, r_ez: 0, cube_friction: 0.1, cube_spinning_friction: 0.5 };
+        const params = { R: 1, R_ex: 0, R_ey: 0, R_ez: 0, R_wy: 0, r: 1, r_ex: 0, r_ez: 0, cube_friction: 0.1, cube_spinning_friction: 0.5 };
 
         const rigidBodies = [];
         const margin = 0.05;
@@ -150,10 +150,11 @@
             const gui = new GUI();
             const paramsFolder = gui.addFolder('Params');
             paramsFolder.add(params, 'R', -4, 4, 0.1).name('|R|').listen();
-            paramsFolder.add(params, 'R_ex', 0, Math.PI, 0.01).listen();
             paramsFolder.add(params, 'R_ez', 0, Math.PI, 0.01).listen();
             paramsFolder.add(params, 'R_wy', -5, 5, 0.1).name('R_ωy').listen();
+            paramsFolder.add(params, 'r', 0, 1, 0.01).listen();
             paramsFolder.add(params, 'r_ex', 0, Math.PI, 0.01).listen();
+            paramsFolder.add(params, 'r_ez', 0, Math.PI, 0.01).listen();
             paramsFolder.open();
 
             window.addEventListener('resize', onWindowResize);
@@ -217,8 +218,8 @@
             return shape;
         }
     
-        let body, ball, cube, rope, pivot, frame, pointA, pendulumConstraint;
-        let arrow_R, arrow_r, arrow_W, arrow_WxR, line_CD, line_DA;
+        let body, ball, cube, rope, pivot, frame, point_R, point_r, pendulumConstraint;
+        let arrow_R, arrow_r, arrow_W, arrow_WxR, arrow_WxWxR, line_CD, line_DR;
         function createObjects(){
             const pos = new THREE.Vector3();
             const quat = new THREE.Quaternion();
@@ -249,7 +250,7 @@
             pos.set(0, 0, 0);
             quat.set(0, 0, 0, 1);
             arrow_R = new Arrow(dirY, new THREE.Vector3(), 1, 0x0);
-            arrow_r = new Arrow(dirY, new THREE.Vector3(), 2, 0xf00000);
+            arrow_r = new Arrow(dirY, new THREE.Vector3(), 1, 0xf00000);
             // Set position and rotation of arrow_r relative to arrow_R
             //  --->R
             //  --->r
@@ -267,10 +268,16 @@
             frame.receiveShadow = true;
             frame.userData.physicsBody.setFriction(10);
             arrow_R.children.push(frame);
-            pointA = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.1, 0.1, 1, 1, 1), new THREE.MeshPhongMaterial({ transparent: true, opacity: 0 }));
-            pointA.parent = arrow_R;
-            pointA.userData.basePoint = new THREE.Vector3(0, 0, 0);
-            arrow_R.children.push(pointA);
+            point_R = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.1, 0.1, 1, 1, 1), new THREE.MeshPhongMaterial({ transparent: true, opacity: 0 }));
+            point_R.parent = arrow_R;
+            point_R.userData.basePoint = new THREE.Vector3(0, 0, 0);
+            arrow_R.children.push(point_R);
+            point_r = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.1, 0.1, 1, 1, 1), new THREE.MeshPhongMaterial({ transparent: true, opacity: 1 }));
+            point_r.parent = arrow_r;
+            point_r.userData.basePoint = new THREE.Vector3(0, 0, 0);
+            arrow_r.children.push(point_r);
+            arrow_r.line.material.transparent = true;
+            arrow_r.line.material.opacity = 0;
             // Pivot
             //pivot = createParalellepiped(0.5, 0.05, 0.5, 0, pos, quat, new THREE.MeshPhongMaterial({ color: 0x101010 }));
             //pivot.parent = arrow_R;
@@ -279,6 +286,7 @@
             //pivot.receiveShadow = true;
             //arrow_R.children.push(pivot);
             arrow_R.updateChildren();
+            arrow_r.updateChildren();
             scene.add(arrow_R);
 
             pos.set(0, 1, 0);
@@ -286,11 +294,13 @@
             scene.add(arrow_W);
             arrow_WxR = new Arrow(dirY, new THREE.Vector3(), 1, 0x0);
             scene.add(arrow_WxR);
+            arrow_WxWxR = new Arrow(dirY, new THREE.Vector3(), 1, 0x0);
+            scene.add(arrow_WxWxR);
 
             line_CD = new Line(new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 5, 0), 5, 0x0);
             scene.add(line_CD);
-            line_DA = new Line(new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 5, 0), 5, 0x0);
-            scene.add(line_DA);
+            line_DR = new Line(new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 5, 0), 5, 0x0);
+            scene.add(line_DR);
 
             // Ball
             pos.set(0, 4, 0);
@@ -419,7 +429,8 @@
                 })
             }
             get endpoint(){
-                return this.position.clone().add(new THREE.Vector3(0, this.length, 0))
+                //return this.position.clone().add(new THREE.Vector3(0, this.length, 0))
+                return new THREE.Vector3(0, this.length, 0);
             }
         }
 
@@ -485,24 +496,34 @@
             arrow_R.rotation.y += params.R_wy*deltaTime;
             arrow_R.rotation.z = params.R_ez;
             arrow_r.rotation.x = params.r_ex;
+            arrow_r.rotation.z = params.r_ez;
             arrow_R.setLength(params.R);
+            arrow_r.setLength(params.r);
             arrow_W.setLength(W.y);
 
+            // arrow_R world direction -> arrow_dir
             arrow_R.getWorldQuaternion(arrow_R_quat);
             arrow_dir.set(0, 1, 0);
             arrow_dir.applyQuaternion(arrow_R_quat);
+            // P = arrow_dir*|R|
             P = arrow_dir.multiplyScalar(arrow_R.length).clone();
+            // proj = proj_{direction} arrow_dir
             proj = arrow_dir.projectOnVector(direction);
             line_CD.updateEnd(proj);
             arrow_W.position.set(proj.x, proj.y, proj.z);
-            line_DA.updateStart(proj);
-            pointA.getWorldPosition(worldPos);
-            line_DA.updateEnd(worldPos);
+            line_DR.updateStart(proj);
+            point_R.getWorldPosition(worldPos);
+            line_DR.updateEnd(worldPos);
+            // Q = WxR
             Q = W.clone().cross(P);
             arrow_WxR.setLength(Q.length());
             arrow_WxR.setDirection(Q);
             arrow_WxR.position.set(worldPos.x, worldPos.y, worldPos.z);
-            
+            // Q = WxWxR
+            Q = W.clone().cross(Q);
+            arrow_WxWxR.setLength(Q.length());
+            arrow_WxWxR.setDirection(Q.multiplyScalar(-1));
+            arrow_WxWxR.position.set(worldPos.x, worldPos.y, worldPos.z);
             
             // sync moving frame in (Ammo) physicsWorld
             const btTransform = new Ammo.btTransform();
