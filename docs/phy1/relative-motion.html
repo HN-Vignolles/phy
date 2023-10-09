@@ -79,10 +79,11 @@
         const params = { 
             R: 1, R_ex: 0, R_ey: 0, R_ez: 0.5, R_wy: 0.3,
             r: 2, r_ex: 0, r_ez: 0,
-            V: 0.5, V_ex: Math.PI, V_ey: 0, V_ez: Math.PI/2,
-            cube_friction: 0.1, cube_spinning_friction: 0.5
+            V: 0, V_ex: Math.PI, V_ey: 0, V_ez: Math.PI/2,
+            cube_friction: 0.1, cube_spinning_friction: 0.5,
+            camera_parent: null,
         };
-
+        let paramsFolder;
         const rigidBodies = [];
         const margin = 0.05;
         let gravityConstant;
@@ -165,7 +166,7 @@
             controls.target.set(0, 1.5, 0);
 
             const gui = new GUI();
-            const paramsFolder = gui.addFolder('Params');
+            paramsFolder = gui.addFolder('Params');
             paramsFolder.add(params, 'R', -4, 4, 0.1).name('|R|').listen();
             paramsFolder.add(params, 'R_ez', 0, Math.PI, 0.01).listen();
             paramsFolder.add(params, 'R_wy', -5, 5, 0.1).name('R_ωy').listen();
@@ -176,6 +177,7 @@
             paramsFolder.add(params, 'V_ex', 0, Math.PI, 0.01).listen();
             paramsFolder.add(params, 'V_ey', 0, Math.PI, 0.01).listen();
             paramsFolder.add(params, 'V_ez', 0, Math.PI, Math.PI/4).listen();
+            paramsFolder.add(params, 'camera_parent', { null:null, point_r:'point_r' }).onChange(setCameraParent);
             paramsFolder.open();
 
             window.addEventListener('resize', onWindowResize);
@@ -239,9 +241,9 @@
             return shape;
         }
     
-        let body, ball, cube, rope, pivot, frame, point_R, point_r, pendulumConstraint;
+        let ball, cube, rope, pivot, frame, point_R, point_r, pendulumConstraint;
         let arrow_R, arrow_r, arrow_W, arrow_WxR, arrow_WxWxR, arrow_V, arrow_Cor, arrow_Vball, arrow_VballCor;
-        let line_CD, line_DR;
+        let line_CD, line_DR, path, linePath, tempLine1, tempLine2;
         function createObjects(){
             const pos = new THREE.Vector3();
             const quat = new THREE.Quaternion();
@@ -299,11 +301,12 @@
             point_R.userData.basePoint = new THREE.Vector3(0, 0, 0);
             arrow_R.children.push(point_R);
 
-            point_r = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.1, 0.1, 1, 1, 1), new THREE.MeshPhongMaterial({ transparent: true, opacity: 1 }));
+            point_r = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.05, 0.05, 1, 1, 1), new THREE.MeshPhongMaterial({ transparent: true, opacity: 1 }));
             point_r.parent = arrow_r;
             point_r.userData.basePoint = new THREE.Vector3(0, 0, 0);
             arrow_r.children.push(point_r);
-    
+            point_r.children.push(camera);
+            
             arrow_V = new Arrow(dirY, new THREE.Vector3(), 1, 0x0);
             arrow_V.parent = arrow_r;
             arrow_V.userData.basePoint = new THREE.Vector3(0, 0, 0);
@@ -348,7 +351,7 @@
             ball.userData.physicsBody.setDamping(0.1, 0.1); // linear damping, rotational damping
 
             // No spinningFriction available
-            pos.set(0, 5, 0);
+            /*pos.set(0, 5, 0);
             quat.set(0, 0, 0, 1);
             const cubeMass = 0.5;
             const cubeSide = 0.5;
@@ -356,8 +359,31 @@
             cube.castShadow = true;
             cube.receiveShadow = true;
             cube.userData.physicsBody.setFriction(0.1);
-            cube.userData.physicsBody.setDamping(0.2, 0.1);
-            body = ball;
+            cube.userData.physicsBody.setDamping(0.2, 0.1);*/
+            setCameraParent('point_r');
+
+            // Path
+            frame.userData.xAxis = new Line(new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 0, 0), 1, 0xff0000)
+            frame.userData.yAxis = new Line(new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 0, 0), 1, 0xff0000)
+            frame.userData.xAxis.updateEnd({x:1, y:0, z:0});
+            //frame.userData.yAxis.updateEnd({x:0, y:0, z:1});
+            frame.children.push(frame.userData.xAxis);
+            //frame.children.push(frame.userData.yAxis);
+            frame.userData.xAxis.parent = frame;
+            //frame.userData.yAxis.parent = frame;
+            tempLine1 = new Line(new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 0, 0), 1, 0x0f302f);
+            tempLine2 = new Line(new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 0, 0), 1, 0x0ef05e);
+            scene.add(tempLine1, tempLine2);
+            const lineG = new THREE.BufferGeometry();
+            const lineM = new THREE.LineBasicMaterial({ color: 0xffffff });
+            linePath = new THREE.Line(lineG, lineM);
+            linePath.parent = frame;
+            frame.children.push(linePath);
+            //linePath.rotation.set(Math.PI, Math.PI/8, 0);
+            path = new THREE.Path();
+            path.lineTo(0, 0);
+            path.lineTo(0, 0.5);
+            linePath.rotation.set(Math.PI/2, 0, 0);
         }
 
         function createParalellepiped(sx, sy, sz, mass, pos, quat, material){
@@ -504,6 +530,13 @@
                     this.geometry.attributes.position.array[5]
                 );
             }
+            get direction(){
+                const quat = new THREE.Quaternion();
+                const dirV = new THREE.Vector3(0, 1, 0);
+                this.getWorldQuaternion(quat);
+                dirV.applyQuaternion(quat);
+                return dirV;
+            }
         }
 
         function updateArrowOverlay(arrow, label, text){
@@ -517,6 +550,44 @@
             label.innerHTML = text;
         }
 
+        function tracePath(obj){
+            const quat = new THREE.Quaternion();
+            const normal = new THREE.Vector3();
+            frame.getWorldQuaternion(quat);
+            normal.set(0, 1, 0);
+            normal.applyQuaternion(quat);
+            let proj = obj.position.clone();
+            tempLine1.updateEnd(proj);
+            proj.projectOnPlane(normal);
+            tempLine2.updateEnd(proj);
+            proj.applyQuaternion(quat.invert());
+            frame.userData.xAxis.updateEnd(proj)
+            if(path.getLength() < 1000){
+                path.lineTo(proj.x, proj.z);
+                let points = path.getPoints();
+                linePath.geometry.setFromPoints(points);
+                linePath.geometry.attributes.position.needsUpdate = true;
+            }
+        }
+
+        let cameraOldT = { position:null, rotation:null };
+        function getCameraMatrix(){
+            console.log(camera);
+        }
+        function setCameraParent(value){
+            if(value === 'point_r'){
+                camera.parent = point_r;  // workaround for dat.GUI
+                cameraOldT.position = camera.position.clone();
+                cameraOldT.rotation = camera.rotation.clone();
+                camera.position.set(0, 2, 0);
+                camera.rotation.set(-Math.PI/2, 0, -Math.PI/2);
+            } else if(value === 'null'){
+                camera.parent = null;
+                camera.position.set(cameraOldT.position.x, cameraOldT.position.y, cameraOldT.position.z);
+                camera.rotation.set(cameraOldT.rotation.x, cameraOldT.rotation.y, cameraOldT.rotation.z);
+            }
+        }
+
         const dataDiv = document.querySelector('#data');
         gravityConstant = 0;
         let arrow_dir = new THREE.Vector3();
@@ -525,7 +596,7 @@
         let proj = new THREE.Vector3();
         let worldPos = new THREE.Vector3();
         let W = new THREE.Vector3();
-        let P, Q, U, V, Cor;
+        let P, Q, U, V, Cor, ballCor;
         let ballV = new THREE.Vector3();
         const label_V = document.body.appendChild(document.createElement("div")); label_V.classList.add('overlay');
         const label_W = document.body.appendChild(document.createElement("div")); label_W.classList.add('overlay');
@@ -548,6 +619,7 @@
             arrow_r.setLength2(params.r);
             arrow_V.setLength2(params.V);
             arrow_W.setLength2(W.y);
+            //camera.parent = params.camera_parent;
             
             // arrow_R world direction -> arrow_dir
             arrow_R.getWorldQuaternion(arrow_quat);
@@ -591,8 +663,10 @@
             arrow_Vball.setLength(ballV.length());
             arrow_Vball.setDirection(ballV.normalize());
             arrow_Vball.position.set(ball.position.x, ball.position.y, ball.position.z);
-            Cor = W.clone().multiplyScalar(-2).cross(ballV);
-            
+            ballCor = W.clone().multiplyScalar(-2).cross(ballV);
+            arrow_VballCor.setLength(ballCor.length());
+            arrow_VballCor.setDirection(ballCor.normalize());
+            arrow_VballCor.position.set(ball.position.x, ball.position.y, ball.position.z);
 
             if(overlayIntUpdate){
                 if(W.length() > 0.2){
@@ -632,14 +706,14 @@
             frame.userData.physicsBody.setWorldTransform(btTransform);
             //const btVec = new Ammo.btVector3(worldPos.x, worldPos.y, worldPos.z);
             //pendulumConstraint.setPivotA(btVec);
-            //dataDiv.innerHTML  = `R endpoint: ${arrow_R.endpoint.x.toFixed(3)}, ${arrow_R.endpoint.y.toFixed(3)}, ${arrow_R.endpoint.z.toFixed(3)}<br/>`;
             //dataDiv.innerHTML += `frame World Pos: ${frameWorldPos.x.toFixed(3)}, ${frameWorldPos.y.toFixed(3)}, ${frameWorldPos.z.toFixed(3)}<br/>`;
+            tracePath(ball);
 
             // Step world
             physicsWorld.stepSimulation(deltaTime, 10);
-            let tVect = body.position.clone().normalize().multiplyScalar(-6);
+            let tVect = ball.position.clone().normalize().multiplyScalar(-6);
             let bodyRelPosC = new Ammo.btVector3(...tVect);
-            body.userData.physicsBody.applyForce(bodyRelPosC, new Ammo.btVector3());
+            ball.userData.physicsBody.applyForce(bodyRelPosC, new Ammo.btVector3());
 
             // Update all rigid bodies in (Three) scene
             for(let i = 0, il = rigidBodies.length; i < il; i ++){
