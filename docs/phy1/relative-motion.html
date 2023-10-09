@@ -168,7 +168,7 @@
             const gui = new GUI();
             paramsFolder = gui.addFolder('Params');
             paramsFolder.add(params, 'R', -4, 4, 0.1).name('|R|').listen();
-            paramsFolder.add(params, 'R_ez', 0, Math.PI, 0.01).listen();
+            paramsFolder.add(params, 'R_ez', 0, Math.PI, Math.PI/16).listen();
             paramsFolder.add(params, 'R_wy', -5, 5, 0.1).name('R_ωy').listen();
             paramsFolder.add(params, 'r', 0, 2, 0.01).listen();
             paramsFolder.add(params, 'r_ex', 0, Math.PI, 0.01).listen();
@@ -177,7 +177,7 @@
             paramsFolder.add(params, 'V_ex', 0, Math.PI, 0.01).listen();
             paramsFolder.add(params, 'V_ey', 0, Math.PI, 0.01).listen();
             paramsFolder.add(params, 'V_ez', 0, Math.PI, Math.PI/4).listen();
-            paramsFolder.add(params, 'camera_parent', { null:null, point_r:'point_r' }).onChange(setCameraParent);
+            paramsFolder.add(params, 'camera_parent', { world:'world', point_r:'point_r' }).name('Camera rel position').onChange(setCameraParent);
             paramsFolder.add({ reset:resetBallPosition }, 'reset').name('Reset ball position');
             paramsFolder.open();
 
@@ -288,7 +288,7 @@
             arrow_r.userData.basePoint = new THREE.Vector3(0, 0, 0);
             arrow_R.children.push(arrow_r);
             //const bowlHullShape = createHullFromModel(bowl);
-            frame = createParalellepiped(1.5, 0.1, 1.5, 0, pos, quat, new THREE.MeshPhongMaterial({ color: 0xf05050, transparent: true, opacity: 0.4 }));
+            frame = createParalellepiped(2, 0.1, 2, 0, pos, quat, new THREE.MeshPhongMaterial({ color: 0xf05050, transparent: true, opacity: 0.4 }));
             frame.parent = arrow_R;
             frame.userData.basePoint = new THREE.Vector3(0, -0.06, 0);
             frame.castShadow = true;
@@ -381,7 +381,8 @@
             frame.getWorldQuaternion(quat);
             relPos.set(0.7, 0.2, 0);
             relPos.applyQuaternion(quat);
-            ball.position.set(...framePos.add(relPos));
+            relPos.add(framePos);
+            ball.position.set(relPos.x, relPos.y, relPos.z);
             const btTransform = new Ammo.btTransform();
             ball.getWorldPosition(ballPos);
             btTransform.setIdentity();
@@ -389,8 +390,8 @@
             btTransform.setRotation(new Ammo.btQuaternion(...ball.quaternion));
             ball.userData.physicsBody.setWorldTransform(btTransform);
             const btInitialBallVel = frame.userData.physicsBody.getAngularVelocity();
-            console.log(...frame.userData.WxR);
-            ball.userData.physicsBody.setLinearVelocity(new Ammo.btVector3());
+            frame.userData.WxR.multiplyScalar(1.6);
+            ball.userData.physicsBody.setLinearVelocity(new Ammo.btVector3(...frame.userData.WxR));
             ball.userData.physicsBody.setAngularVelocity(new Ammo.btVector3());
             path = new THREE.Path();
             path.lineTo(0, 0);
@@ -562,7 +563,7 @@
 
         function tracePath(obj){
             const quat = new THREE.Quaternion();
-            const normal = new THREE.Vector3();
+            const normal = new THREE.Vector3();  // normal vector to the frame mesh
             frame.getWorldQuaternion(quat);
             normal.set(0, 1, 0);
             normal.applyQuaternion(quat);
@@ -574,6 +575,11 @@
                 let points = path.getPoints();
                 linePath.geometry.setFromPoints(points.slice(-1000));
                 linePath.geometry.attributes.position.needsUpdate = true;
+            }
+            const btVel = ball.userData.physicsBody.getLinearVelocity();
+            const ballVel = new THREE.Vector3(btVel.x(), btVel.y(), btVel.z());
+            if(ballVel.length() > 3){
+                resetBallPosition();
             }
         }
 
@@ -588,7 +594,7 @@
                 cameraOldT.rotation = camera.rotation.clone();
                 camera.position.set(0, 2, 0);
                 camera.rotation.set(-Math.PI/2, 0, -Math.PI/2);
-            } else if(value === 'null'){
+            } else if(value === 'world'){
                 camera.parent = null;
                 camera.position.set(cameraOldT.position.x, cameraOldT.position.y, cameraOldT.position.z);
                 camera.rotation.set(cameraOldT.rotation.x, cameraOldT.rotation.y, cameraOldT.rotation.z);
