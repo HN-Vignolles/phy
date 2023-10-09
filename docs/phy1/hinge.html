@@ -1,0 +1,592 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no" />
+    <title>Phy1</title>
+    <style>
+        [v-cloak] {
+            display: none;
+        }
+        body {
+            background-color: black;
+        }
+        .flex-container {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            justify-content: center;
+        }
+        .flex-item-left {
+            flex: 70%;
+            display: flex;
+            justify-content: center;
+        }
+        .flex-item-right {
+            flex: 20%
+        }
+        @media (max-width: 800px) {
+            .flex-item-left, .flex-item-right {
+                flex: 100%;
+                justify-content: center;
+            }
+        }
+        .stats {
+            color: black;
+            font-family: monospace;
+            position: absolute;
+            top: 10px;
+            width: 100%;
+            text-align: center;
+            z-index: 100;
+            display: block;
+        }
+        .overlay {
+            position: absolute;
+            z-index: 100;
+            font-family: 'Gill Sans', 'Gill Sans MT', Calibri, 'Trebuchet MS', sans-serif;
+            font-size: 1.5rem;
+            justify-content: center;
+        }
+    </style>
+</head>
+<body>
+    <div id="app">
+        <div class="stats" id="data"></div>
+        <canvas id="c"></canvas>
+    </div>
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@v0.157.0/build/three.module.js",
+                "three/addons/": "https://unpkg.com/three@v0.157.0/examples/jsm/",
+                "dat.gui": "https://unpkg.com/dat.gui@0.7.7/build/dat.gui.module.js"
+            }
+        }
+    </script>
+    <script src="https://unpkg.com/three@v0.157.0/examples/jsm/libs/ammo.wasm.js"></script>
+    <script type="module">
+        // Based on https://github.com/mrdoob/three.js/blob/master/examples/physics_ammo_rope.html
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+        import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+        import { GUI } from 'dat.gui';
+
+        let canvas, renderer, camera, scene, controls;
+        let canvasHalfWidth;
+        let canvasHalfHeight;
+        let collisionConfiguration, dispatcher, broadphase, solver, softBodySolver, physicsWorld, transformAux1;
+        let rodMovement = 0;
+        const params = { 
+            R_ex: 0, R_ey: 0, R_ez: 0.5, R_wy: 0.3,
+        };
+        let paramsFolder;
+        const rigidBodies = [];
+        const margin = 0.05;
+        let gravityConstant = -9.8;
+        const clock = new THREE.Clock();
+
+        // GLB
+        // https://discourse.threejs.org/t/most-simple-way-to-wait-loading-in-gltf-loader/13896/4
+        const loader = new GLTFLoader();
+        function modelLoader(url){
+            return new Promise((resolve, reject) => {
+                loader.load(url, data => resolve(data), null, reject);
+            });
+        }
+        async function addModel(path){
+            const gltf = await modelLoader(path);
+            const model = gltf.scene;
+            gltf.scene.traverse((node) => {
+                if(node.isMesh){
+                    node.castShadow = true;
+                    node.receiveShadow = true;
+                }
+            });
+            return model;
+        }
+        //let bowl = await addModel('./bowl.glb');
+
+        Ammo().then(function(AmmoLib){
+            Ammo = AmmoLib;
+            initGraphics();
+            onWindowResize();
+            initPhysics();
+            createObjects();
+            initInput();
+            animate();
+        });
+
+        function initGraphics(){
+            canvas = document.querySelector('#c');
+            canvasHalfWidth = canvas.width/2;  // for CSS overlay
+            canvasHalfHeight = canvas.height/2;
+            renderer = new THREE.WebGLRenderer({ canvas });
+            renderer.shadowMap.enabled = true;
+            camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.set(10, 3, 0);
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x041a40);
+            scene.fog = new THREE.FogExp2(0x303030, 0.025);
+
+            // Light
+            // DirectionalLight camera -> Orthographic
+            // SpotLight camera -> Perspective
+            const ambientLight = new THREE.AmbientLight(0xbbbbbb, 0.1);
+            //scene.add(ambientLight);
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 2);
+            directionalLight.position.set(8, 10, 5);
+            directionalLight.castShadow = true;
+            const d = 10;
+            directionalLight.shadow.camera.left = -d;
+            directionalLight.shadow.camera.right = d;
+            directionalLight.shadow.camera.top = d;
+            directionalLight.shadow.camera.bottom = -d;
+            directionalLight.shadow.camera.near = 2;
+            directionalLight.shadow.camera.far = 50;
+            directionalLight.shadow.mapSize.x = 1024;
+            directionalLight.shadow.mapSize.y = 1024;
+            scene.add(directionalLight);
+            const directionalLightHelper = new THREE.CameraHelper(directionalLight.shadow.camera);
+            //scene.add(directionalLightHelper);
+
+            // Orbit Controls
+            controls = new OrbitControls(camera, renderer.domElement);
+            controls.listenToKeyEvents(window);
+            //controls.enableDamping = true; // an animation loop is required when either damping or auto-rotation are enabled
+            //controls.dampingFactor = 0.05;
+            controls.screenSpacePanning = true;
+            controls.minDistance = 1;
+            controls.maxDistance = 30;
+            controls.maxPolarAngle = Math.PI / 2;
+            controls.target.set(0, 1.5, 0);
+
+            const gui = new GUI();
+            paramsFolder = gui.addFolder('Params');
+            paramsFolder.add(params, 'R_ex', 0, Math.PI, Math.PI/16).listen();
+            paramsFolder.add(params, 'R_ey', 0, Math.PI, Math.PI/16).listen();
+            paramsFolder.add(params, 'R_ez', 0, Math.PI, Math.PI/16).listen();
+            paramsFolder.add(params, 'R_wy', -5, 5, 0.1).name('R_ωy').listen();
+            paramsFolder.add({ reset:resetPosition }, 'reset').name('Reset position');
+            paramsFolder.open();
+
+            window.addEventListener('resize', onWindowResize);
+        }
+
+        function initPhysics(){
+            collisionConfiguration = new Ammo.btSoftBodyRigidBodyCollisionConfiguration();  // collision detection and response configuration
+            dispatcher = new Ammo.btCollisionDispatcher(collisionConfiguration);  // dispatches collision events to the appropriate collision objects
+            broadphase = new Ammo.btDbvtBroadphase();  // init: broad-phase collision detection algorithm using a dynamic bounding volume tree
+            solver = new Ammo.btSequentialImpulseConstraintSolver();  // Solver for constraints and forces
+            softBodySolver = new Ammo.btDefaultSoftBodySolver();
+            physicsWorld = new Ammo.btSoftRigidDynamicsWorld(dispatcher, broadphase, solver, collisionConfiguration, softBodySolver);
+            physicsWorld.setGravity(new Ammo.btVector3(0, gravityConstant, 0));
+            physicsWorld.getWorldInfo().set_m_gravity(new Ammo.btVector3(0, gravityConstant, 0));
+            transformAux1 = new Ammo.btTransform();  // auxiliary transformation object (e.g. translations and rotations)
+        }
+
+        function initInput(){
+            window.addEventListener('keydown', function(event){
+                switch(event.keyCode){
+                case 65:  // S
+                    rodMovement = 1;
+                    break;
+                case 68:  // D
+                    rodMovement = -1;
+                    break;
+                case 83: // S
+                    removeConstraint();
+                    break;
+                }
+            });
+            window.addEventListener('keyup', function(){
+                rodMovement = 0;
+            });
+        }
+
+        // https://stackoverflow.com/questions/72550511/ammojs-btbvhtrianglemeshshape-not-colliding?noredirect=1&lq=1
+        // https://sleekwp.dev/fun/io8/lib/sleek-entity.js
+        //=====================================================================
+        // - https://pybullet.org/Bullet/BulletFull/annotated.html
+        // - https://pybullet.org/Bullet/BulletFull/classbtTriangleIndexVertexArray.html
+        // btStridingMeshInterface inheritance:
+        //     btTriangleMesh --> btTriangleIndexVertexArray --> btStridingMeshInterface
+        //       +-> .AddTriangle()          +-> .addIndexedMesh()
+        //=====================================================================
+        // TODO: wireframe visualization of the Ammo.js triangle mesh shape in Three.js
+        //
+        function createHullFromModel(model){
+            // TODO: translate vertices based on position
+            // Ammo.btTriangleMesh().addTriangleIndices() --> is not a function => using .toNonIndexed()
+            const position = model.children[1].position;
+            const geometry = model.children[1].geometry.toNonIndexed();
+            const threeVertices = geometry.attributes.position.array;
+            //const threeIndices = geometry.index.array;
+            
+            // Ammo.btStridingMeshInterface() --> not a constructor
+            // Ammo.btTriangleIndexVertexArray() --> not a constructor
+            //   => using Ammo.btTriangleMesh();
+            const ammoMesh = new Ammo.btTriangleMesh();
+            //console.log('threeIndices: ', threeIndices);
+            console.log('threeVertices: ', threeVertices);
+            let indexA, indexB, indexC;
+            const vectA = new Ammo.btVector3();
+            const vectB = new Ammo.btVector3();
+            const vectC = new Ammo.btVector3();
+            for(let i=0; i < threeVertices.length; i+=9){
+                //indexA = threeIndices[i];
+                //indexB = threeIndices[i+1];
+                //indexC = threeIndices[i+2];
+                //vectA.setX(threeVertices[indexA]); vectA.setY(threeVertices[indexA+1]); vectA.setZ(threeVertices[indexA+2]);
+                vectA.setX(threeVertices[i]); vectA.setY(threeVertices[i+1]); vectA.setZ(threeVertices[i+2]);
+                vectB.setX(threeVertices[i+3]); vectB.setY(threeVertices[i+4]); vectB.setZ(threeVertices[i+5]);
+                vectC.setX(threeVertices[i+6]); vectC.setY(threeVertices[i+7]); vectC.setZ(threeVertices[i+8]);
+                ammoMesh.addTriangle(vectA, vectB, vectC, false);
+            }
+            // btBvhTriangleMeshShape() --> objects fall through
+            // btTriangleMeshShape(), btConcaveShape(), btCollisionShape() --> no constructors in IDL
+            var shape = new Ammo.btConvexTriangleMeshShape(ammoMesh, true);
+            shape.setMargin(0.05);
+            return shape;
+        }
+    
+        let column, rod, point_CM;
+        let hinge;
+        let arrow_V;
+        let line_CD, line_DR, path, linePath;
+        let rodPos;
+        let rodAngle = 10;
+        function createObjects(){
+            const pos = new THREE.Vector3();
+            const quat = new THREE.Quaternion();
+
+            // Ground
+            pos.set(0, -0.5, 0);  // position
+            quat.set(0, 0, 0, 1); // rotation
+            const groundM = new THREE.MeshPhongMaterial({ color: 0x555555 });
+            //const groundT = new THREE.TextureLoader().load("./ground-texture-1.jpg");
+            //groundT.wrapS = THREE.RepeatWrapping;
+            //groundT.wrapT = THREE.RepeatWrapping;
+            //groundT.repeat.set(4, 4);
+            //groundM.map = groundT;
+            const ground = createParalellepiped(40, 1, 40, 0, pos, quat, groundM);
+            ground.receiveShadow = true;
+            const gridHelper = new THREE.GridHelper(20);
+            scene.add(gridHelper);
+
+            // Origin
+            const worldOrigin = new THREE.Vector3();
+            const dirY = new THREE.Vector3(0, 1, 0);
+            const arrowX = new THREE.ArrowHelper(new THREE.Vector3(1, 0, 0), worldOrigin, 0.5, 0xff0000);
+            const arrowY = new THREE.ArrowHelper(new THREE.Vector3(0, 1, 0), worldOrigin, 0.5, 0x00ff00);
+            const arrowZ = new THREE.ArrowHelper(new THREE.Vector3(0, 0, 1), worldOrigin, 0.5, 0x0000ff);
+            scene.add(arrowX, arrowY, arrowZ);
+
+            // Column
+            //const bowlHullShape = createHullFromModel(bowl);
+            const columnHeight = 3;
+            const columnSide = 0.3;
+            pos.set(0, columnHeight/2, 0);
+            quat.set(0, 0, 0, 1);
+            column = createParalellepiped(columnSide, columnHeight, columnSide, 0, pos, quat, new THREE.MeshPhongMaterial({ color: 0x202020 }));
+            column.castShadow = true;
+            column.receiveShadow = true;
+            scene.add(column);
+            camera.lookAt(0, 2, 0);
+            
+            // Rod
+            const rodHeight = 2;
+            const rodSide = 0.2;
+            rodPos = new THREE.Vector3(columnSide, columnHeight+rodHeight/2-rodSide, 0)
+            pos.set(rodPos.x, rodPos.y, rodPos.z);
+            quat.set(0, 0, 0, 1);
+            const rodMass = 1;
+            rod = createParalellepiped(rodSide, rodHeight, rodSide, rodMass, pos, quat, new THREE.MeshPhongMaterial({ color: 0xf02050 }));
+            rod.castShadow = true;
+            rod.receiveShadow = true;
+            rod.userData.physicsBody.setFriction(0.8);
+            //rod.userData.physicsBody.setRollingFriction(0.3);
+            //rod.userData.physicsBody.setAnisotropicFriction(1);
+            rod.userData.physicsBody.setDamping(0.2, 0.2);
+            resetPosition();
+            const pivotA = new Ammo.btVector3(columnSide, columnHeight/2-0.1, 0); // Column, local coordinates
+            const pivotB = new Ammo.btVector3(0, -rodHeight/2+0.1, 0);  // Rod
+            const axis = new Ammo.btVector3(1, 0, 0);
+            hinge = new Ammo.btHingeConstraint(column.userData.physicsBody, rod.userData.physicsBody, pivotA, pivotB, axis, axis, true);
+            physicsWorld.addConstraint(hinge, true);
+
+            // Velocity vector
+            arrow_V = new Arrow(dirY, new THREE.Vector3(), 1, 0x0);
+            //arrow_V.updateChildren();
+            //scene.add(arrow_V);
+
+            //pos.set(0, 1, 0);
+            //line_CD = new Line(new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 5, 0), 5, 0x0);
+            //line_DR = new Line(new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 5, 0), 5, 0x0);
+            //scene.add(line_CD, line_DR);
+
+            // Path
+            //const lineG = new THREE.BufferGeometry();
+            //const lineM = new THREE.LineBasicMaterial({ color: 0xffffff });
+            //linePath = new THREE.Line(lineG, lineM);
+            //linePath.parent = column;
+            //column.children.push(linePath);
+            //path = new THREE.Path();
+            //path.lineTo(0, 0);
+            //linePath.rotation.set(Math.PI/2, 0, 0);
+        }
+
+        function removeConstraint(){
+            console.log('S')
+            physicsWorld.removeConstraint(hinge);
+        }
+
+        function resetPosition(){
+            const quat = new THREE.Quaternion(0, 0, 0, 1);//.setFromAxisAngle(new THREE.Vector3(1, 0, 0), -0.2);
+            rod.position.set(rodPos.x, rodPos.y, rodPos.z);
+            const btTransform = new Ammo.btTransform();
+            btTransform.setIdentity();
+            btTransform.setOrigin(new Ammo.btVector3(rodPos.x, rodPos.y, rodPos.z));
+            btTransform.setRotation(new Ammo.btQuaternion(quat.x, quat.y, quat.z, quat.w));
+            rod.userData.physicsBody.setWorldTransform(btTransform);
+            const motionState = new Ammo.btDefaultMotionState(btTransform);
+            rod.userData.physicsBody.setMotionState(motionState);
+            rod.userData.physicsBody.setLinearVelocity(new Ammo.btVector3());
+            rod.userData.physicsBody.setAngularVelocity(new Ammo.btVector3());
+            if(hinge){
+                physicsWorld.addConstraint(hinge, true);
+            }
+        }
+
+        function createParalellepiped(sx, sy, sz, mass, pos, quat, material){
+            const threeObject = new THREE.Mesh(new THREE.BoxGeometry(sx, sy, sz, 1, 1, 1), material);
+            const shape = new Ammo.btBoxShape(new Ammo.btVector3(sx * 0.5, sy * 0.5, sz * 0.5));
+            shape.setMargin(margin);
+            createRigidBody(threeObject, shape, mass, pos, quat);
+            return threeObject;
+        }
+
+        function createRigidBody(threeObject, physicsShape, mass, pos, quat){
+            threeObject.position.copy(pos);     // initial position and
+            threeObject.quaternion.copy(quat);  // rotation (orientation)
+            const transform = new Ammo.btTransform();
+            transform.setIdentity();
+            transform.setOrigin(new Ammo.btVector3(pos.x, pos.y, pos.z));
+            transform.setRotation(new Ammo.btQuaternion(quat.x, quat.y, quat.z, quat.w));
+            const motionState = new Ammo.btDefaultMotionState(transform);
+            const localInertia = new Ammo.btVector3(0, 0, 0);
+            // LocalInertia refers to the moment of inertia of an object with respect to 
+            // its local coordinate system or its center of mass.
+            physicsShape.calculateLocalInertia(mass, localInertia);
+            const rbInfo = new Ammo.btRigidBodyConstructionInfo(mass, motionState, physicsShape, localInertia);
+            const body = new Ammo.btRigidBody(rbInfo);
+            threeObject.userData.physicsBody = body;
+            scene.add(threeObject);
+            if(mass > 0){
+                rigidBodies.push(threeObject);
+                // Disable deactivation
+                body.setActivationState(4);
+            }
+            physicsWorld.addRigidBody(body);
+        }
+
+        // Moment of Inertia
+        // https://en.wikipedia.org/wiki/Parallel_axis_theorem#Tensor_generalization
+        // J_{ij} = I_{ij} + m (|R|^{2} \delta_{ij} - R_i R_j)
+        // Where I_{ij} is the ij component of the Inertia Tensor, and \delta_{ij} is the Kronecker delta. 
+        // For diagonal elements (when i = j), displacements perpendicular to the axis of rotation
+        // results in the above simplified version of the parallel axis theorem.
+        // Thank you ChatGPT:
+        function calculateCustomMomentOfInertia(body, axisDirection){
+            // Get the inertia tensor from the btRigidBody object.
+            const inertiaTensor = new Ammo.btMatrix3x3();
+            body.getCollisionShape().calculateLocalInertia(body.getMass(), inertiaTensor);
+            // Transform the custom axis direction to the local coordinate system of the body.
+            const localAxisDirection = new Ammo.btVector3(axisDirection.x, axisDirection.y, axisDirection.z);
+            localAxisDirection.normalize(); // Ensure it's a unit vector.
+            // Use the parallel axis theorem to calculate the moment of inertia around the custom axis.
+            const dSquared = localAxisDirection.dot(localAxisDirection);
+            const I_custom = new Ammo.btVector3(
+                inertiaTensor.getElement(0) + body.getMass() * (dSquared - localAxisDirection.x() * localAxisDirection.x()),
+                inertiaTensor.getElement(4) + body.getMass() * (dSquared - localAxisDirection.y() * localAxisDirection.y()),
+                inertiaTensor.getElement(8) + body.getMass() * (dSquared - localAxisDirection.z() * localAxisDirection.z())
+            );
+            return I_custom;
+        }
+
+        function animate(){
+            requestAnimationFrame(animate);
+            render();
+            //stats.update();
+        }
+
+        function render(){
+            const deltaTime = clock.getDelta();
+            updatePhysics(deltaTime);
+            renderer.render(scene, camera);
+        }
+
+        function updateArrowOverlay(arrow, label, text){
+            let pos = new THREE.Vector3();
+            pos.setFromMatrixPosition(arrow.cone.matrixWorld);
+            pos.project(camera);
+            pos.x = (pos.x*canvasHalfWidth)+canvasHalfWidth;
+            pos.y = -(pos.y*canvasHalfHeight)+canvasHalfHeight;
+            label.style.left = `${pos.x}px`;
+            label.style.top = `${pos.y}px`;
+            label.innerHTML = text;
+        }
+
+        function tracePath(obj){
+            const quat = new THREE.Quaternion();
+            const normal = new THREE.Vector3();  // normal vector to the frame mesh
+            frame.getWorldQuaternion(quat);
+            normal.set(0, 1, 0);
+            normal.applyQuaternion(quat);
+            let proj = obj.position.clone();
+            proj.projectOnPlane(normal);
+            proj.applyQuaternion(quat.invert());
+            if(path.getLength() < 50000){
+                path.lineTo(proj.x, proj.z);
+                let points = path.getPoints();
+                linePath.geometry.setFromPoints(points.slice(-1000));
+                linePath.geometry.attributes.position.needsUpdate = true;
+            }
+            const btVel = ball.userData.physicsBody.getLinearVelocity();
+            const ballVel = new THREE.Vector3(btVel.x(), btVel.y(), btVel.z());
+            if(ballVel.length() > 3){
+                resetBallPosition();
+            }
+        }
+
+        const dataDiv = document.querySelector('#data');
+        let btVect;
+        const label_V = document.body.appendChild(document.createElement("div")); label_V.classList.add('overlay');
+        let overlayPos = new THREE.Vector3();
+        function updatePhysics(deltaTime){
+            //hinge.enableAngularMotor(true, 1.5*rodMovement, 50);
+            if(rodMovement != 0){
+                btVect = rod.userData.physicsBody.getAngularVelocity();
+                //console.log(btVect.x(), btVect.y(), btVect.z());
+                btVect.op_add(new Ammo.btVector3(rodMovement*0.8, 0, 0));
+                //rod.userData.physicsBody.setAngularVelocity(new Ammo.btVector3(rodMovement, 0, 0));
+                rod.userData.physicsBody.setAngularVelocity(btVect);
+            }
+
+            // Step world
+            physicsWorld.stepSimulation(deltaTime, 10);
+            let tVect = rod.position.clone().normalize().multiplyScalar(-6);
+
+            // Update all rigid bodies in (Three) scene
+            for(let i = 0, il = rigidBodies.length; i < il; i ++){
+                const objThree = rigidBodies[i];
+                const objPhys = objThree.userData.physicsBody;
+                // The motion state represents the position and orientation of the object in the physics simulation at a specific time step.
+                const ms = objPhys.getMotionState();
+                if(ms){
+                    // If a motion state is available, it proceeds to update the position and orientation of the three.js object
+                    // to match the current state of the physics simulation.
+                    ms.getWorldTransform(transformAux1);
+                    const p = transformAux1.getOrigin();
+                    const q = transformAux1.getRotation();
+                    objThree.position.set(p.x(), p.y(), p.z());
+                    objThree.quaternion.set(q.x(), q.y(), q.z(), q.w());
+                    // This ensures that the graphical representation of the object is synchronized with its physics simulation state.
+                }
+            }
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            canvasHalfWidth = canvas.width/2;
+            canvasHalfHeight = canvas.height/2;
+        }
+
+        class Arrow extends THREE.ArrowHelper {
+            constructor(
+                dir = new THREE.Vector3(0, 0, 1), 
+                origin = new THREE.Vector3(0, 0, 0),
+                length = 1, color = 0xffff00, headLength = length*0.2, headWidth = headLength*0.2
+            ){
+                super(dir.clone().normalize(), origin, length, color, headLength, headWidth);
+                this.type = "Arrow";
+                this.length = length;
+                this.otd = 1;
+                const onRotationChange = () => {
+                    this.quaternion.setFromEuler(this.rotation, false);
+                }
+                this.rotation._onChange(onRotationChange);
+                this.endpoint = new THREE.Vector3(0, length, 0);
+            }
+            // FIXME
+            setLength2(length, headLength = length*0.2, headWidth = headLength*0.2){
+                super.setLength(length, headLength = length*0.2, headWidth = headLength*0.2);
+                this.length = length;
+                this.endpoint.y = length;
+                this.updateChildren();
+            }
+            updateChildren(){
+                this.children.slice(2).forEach((obj) => {
+                    let basePoint = obj.userData.basePoint;
+                    obj.position.set(this.endpoint.x + basePoint.x, this.endpoint.y + basePoint.y, this.endpoint.z + basePoint.z);
+                })
+            }
+        }
+
+        class Line extends THREE.Line {
+            constructor(start, end, scale, color){
+                const points = [start, end];
+                const material = new THREE.LineDashedMaterial({
+                    color: color,
+	                linewidth: 1,
+	                scale: scale,
+	                dashSize: 0.2,
+	                gapSize: 0.1,
+                });
+                const geometry = new THREE.BufferGeometry().setFromPoints(points);
+                super(geometry, material);
+                this.updateStart(start);
+                this.updateEnd(end);
+                this.computeLineDistances();
+            }
+            updateStart(startPoint){
+                this.geometry.attributes.position.array[0] = startPoint.x;
+                this.geometry.attributes.position.array[1] = startPoint.y;
+                this.geometry.attributes.position.array[2] = startPoint.z;
+                this.geometry.attributes.position.needsUpdate = true;
+                this.computeLineDistances();
+
+            }
+            updateEnd(endpoint){
+                this.geometry.attributes.position.array[3] = endpoint.x;
+                this.geometry.attributes.position.array[4] = endpoint.y;
+                this.geometry.attributes.position.array[5] = endpoint.z;
+                this.geometry.attributes.position.needsUpdate = true;
+                this.computeLineDistances();
+            }
+            get start(){
+                return new THREE.Vector3(
+                    this.geometry.attributes.position.array[0],
+                    this.geometry.attributes.position.array[1],
+                    this.geometry.attributes.position.array[2]
+                );
+            }
+            get end(){
+                return new THREE.Vector3(
+                    this.geometry.attributes.position.array[3],
+                    this.geometry.attributes.position.array[4],
+                    this.geometry.attributes.position.array[5]
+                );
+            }
+            get direction(){
+                const quat = new THREE.Quaternion();
+                const dirV = new THREE.Vector3(0, 1, 0);
+                this.getWorldQuaternion(quat);
+                dirV.applyQuaternion(quat);
+                return dirV;
+            }
+        }
+    </script>
+</body>

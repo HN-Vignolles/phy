@@ -52,7 +52,7 @@
 </head>
 <body>
     <div id="app">
-        <div class="stats" id="data">data</div>
+        <div class="stats" id="data"></div>
         <canvas id="c"></canvas>
     </div>
     <script type="importmap">
@@ -77,9 +77,9 @@
         let canvasHalfHeight;
         let collisionConfiguration, dispatcher, broadphase, solver, softBodySolver, physicsWorld, transformAux1;
         const params = { 
-            R: 1, R_ex: 0, R_ey: 0, R_ez: 0.5, R_wy: 0.3,
+            R: 1, R_ex: 0, R_ey: 0, R_ez: Math.PI/4, R_wy: 0.3,
             r: 2, r_ex: 0, r_ez: 0,
-            V: 0, V_ex: Math.PI, V_ey: 0, V_ez: Math.PI/2,
+            V: 0, V_ex: Math.PI, V_ey: 0, V_ez: 0,
             cube_friction: 0.1, cube_spinning_friction: 0.5,
             camera_parent: 'point_r',
         };
@@ -89,7 +89,6 @@
         let gravityConstant;
         const clock = new THREE.Clock();
         let bowl;
-        let btVect;
 
         // GLB
         // https://discourse.threejs.org/t/most-simple-way-to-wait-loading-in-gltf-loader/13896/4
@@ -179,7 +178,6 @@
             paramsFolder.add(params, 'V_ez', 0, Math.PI, Math.PI/4).listen();
             paramsFolder.add(params, 'camera_parent', { world:'world', point_r:'point_r' }).name('Camera rel position').onChange(setCameraParent);
             paramsFolder.add({ reset:resetBallPosition }, 'reset').name('Reset ball position');
-            paramsFolder.open();
 
             window.addEventListener('resize', onWindowResize);
         }
@@ -244,7 +242,7 @@
     
         let ball, cube, rope, pivot, frame, point_R, point_r, pendulumConstraint;
         let arrow_R, arrow_r, arrow_W, arrow_WxR, arrow_WxWxR, arrow_V, arrow_Cor, arrow_Vball, arrow_VballCor;
-        let line_CD, line_DR, path, linePath, tempLine1, tempLine2;
+        let line_CD, line_DR, path, linePath;
         function createObjects(){
             const pos = new THREE.Vector3();
             const quat = new THREE.Quaternion();
@@ -346,7 +344,6 @@
             ball.userData.physicsBody.setRollingFriction(0.3);
             ball.userData.physicsBody.setAnisotropicFriction(1);
             ball.userData.physicsBody.setDamping(0.1, 0.1); // linear damping, rotational damping
-            //resetBallPosition();
 
             // No spinningFriction available
             /*pos.set(0, 5, 0);
@@ -609,7 +606,7 @@
         let proj = new THREE.Vector3();
         let worldPos = new THREE.Vector3();
         let W = new THREE.Vector3();
-        let P, Q, U, V, Cor, ballCor;
+        let P, Q, U, V, Cor, ballCor, btVect;
         let ballV = new THREE.Vector3();
         const label_V = document.body.appendChild(document.createElement("div")); label_V.classList.add('overlay');
         const label_W = document.body.appendChild(document.createElement("div")); label_W.classList.add('overlay');
@@ -617,8 +614,8 @@
         const label_WxWxR = document.body.appendChild(document.createElement("div")); label_WxWxR.classList.add('overlay');
         const label_Cor = document.body.appendChild(document.createElement("div")); label_Cor.classList.add('overlay');
         let overlayPos = new THREE.Vector3();
+        let demoState = -1;
         function updatePhysics(deltaTime){
-            let overlayIntUpdate = true; //clock.elapsedTime % 0.25 > 0.125;
             W.set(0, params.R_wy, 0);
             arrow_R.rotation.x = params.R_ex;
             arrow_R.rotation.y += params.R_wy*deltaTime;
@@ -681,33 +678,11 @@
             arrow_VballCor.setDirection(ballCor.normalize());
             arrow_VballCor.position.set(ball.position.x, ball.position.y, ball.position.z);
 
-            if(overlayIntUpdate){
-                if(W.length() > 0.2){
-                    updateArrowOverlay(arrow_W, label_W, '<b>&omega;</b>');
-                } else {
-                    label_W.innerHTML = '';
-                }
-                if(Q.length() > 0.1){
-                    updateArrowOverlay(arrow_WxR, label_WxR, '<b>&omega;xR</b>');
-                } else {
-                    label_WxR.innerHTML = '';
-                }
-                if(U.length() > 0.1){
-                    updateArrowOverlay(arrow_WxWxR, label_WxWxR, '<b>-&omega;x(&omega;xR)</b>');
-                } else {
-                    label_WxWxR.innerHTML = '';
-                }
-                if(V.length() > 0.1){
-                    updateArrowOverlay(arrow_V, label_V, '<b>V</b>');
-                } else {
-                    label_V.innerHTML = '';
-                }
-                if(Cor.length() > 0.1){
-                    updateArrowOverlay(arrow_Cor, label_Cor, '<b>-2&omega;xV</b>');
-                } else {
-                    label_Cor.innerHTML = '';
-                }
-            }
+            if(W.length() > 0.2){ updateArrowOverlay(arrow_W, label_W, '<b>&omega;</b>'); } else { label_W.innerHTML = ''; }
+            if(Q.length() > 0.1){ updateArrowOverlay(arrow_WxR, label_WxR, '<b>&omega;xR</b>'); } else { label_WxR.innerHTML = ''; }
+            if(U.length() > 0.1){ updateArrowOverlay(arrow_WxWxR, label_WxWxR, '<b>-&omega;x(&omega;xR)</b>'); } else { label_WxWxR.innerHTML = ''; }
+            if(V.length() > 0.1){ updateArrowOverlay(arrow_V,  label_V, '<b>V</b>'); } else { label_V.innerHTML = ''; }
+            if(Cor.length()>0.1){ updateArrowOverlay(arrow_Cor, label_Cor, '<b>-2&omega;xV</b>'); } else { label_Cor.innerHTML = ''; }
 
             // sync moving frame in (Ammo) physicsWorld
             const btTransform = new Ammo.btTransform();
@@ -744,6 +719,41 @@
                     objThree.quaternion.set(q.x(), q.y(), q.z(), q.w());
                     // This ensures that the graphical representation of the object is synchronized with its physics simulation state.
                 }
+            }
+
+            if(demoState === -1){
+                resetBallPosition();
+                demoState = 0;
+            }
+            let tF = 2;
+            let modTime = clock.elapsedTime % (12*tF);
+            //if(modTime > 0)...
+            // R_ez 1/4*PI --> 1/2*PI
+            if(modTime > (2*tF) && modTime < (4*tF) && demoState === 0 && params.R_ez !== Math.PI/2){
+                params.R_ez += Math.PI/128;
+                if(params.R_ez >= Math.PI/2){
+                    params.R_ez = Math.PI/2;
+                    demoState = 1;
+                    resetBallPosition();
+                }
+            }
+            if(modTime > (6*tF) && modTime < (8*tF) && demoState === 1 && params.R_ez !== 3/4*Math.PI){
+                params.R_ez += Math.PI/128;
+                if(params.R_ez >= 3/4*Math.PI){
+                    params.R_ez = 3/4*Math.PI;
+                    demoState = 2;
+                    resetBallPosition();
+                }
+            }
+            if(modTime > (10*tF) && demoState === 2){
+                params.R_ez += Math.PI/128;
+                if(params.R_ez >= Math.PI-0.5){
+                    params.R_ez = Math.PI-0.5;
+                    demoState = 2;
+                    resetBallPosition();
+                }
+                params.R_ez = 0.5;
+                demoState = 0;
             }
         }
 
