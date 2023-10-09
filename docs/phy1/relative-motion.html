@@ -363,26 +363,13 @@
             setCameraParent('point_r');
 
             // Path
-            frame.userData.xAxis = new Line(new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 0, 0), 1, 0xff0000)
-            frame.userData.yAxis = new Line(new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 0, 0), 1, 0xff0000)
-            frame.userData.xAxis.updateEnd({x:1, y:0, z:0});
-            //frame.userData.yAxis.updateEnd({x:0, y:0, z:1});
-            frame.children.push(frame.userData.xAxis);
-            //frame.children.push(frame.userData.yAxis);
-            frame.userData.xAxis.parent = frame;
-            //frame.userData.yAxis.parent = frame;
-            tempLine1 = new Line(new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 0, 0), 1, 0x0f302f);
-            tempLine2 = new Line(new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 0, 0), 1, 0x0ef05e);
-            scene.add(tempLine1, tempLine2);
             const lineG = new THREE.BufferGeometry();
             const lineM = new THREE.LineBasicMaterial({ color: 0xffffff });
             linePath = new THREE.Line(lineG, lineM);
             linePath.parent = frame;
             frame.children.push(linePath);
-            //linePath.rotation.set(Math.PI, Math.PI/8, 0);
             path = new THREE.Path();
             path.lineTo(0, 0);
-            path.lineTo(0, 0.5);
             linePath.rotation.set(Math.PI/2, 0, 0);
         }
 
@@ -557,11 +544,8 @@
             normal.set(0, 1, 0);
             normal.applyQuaternion(quat);
             let proj = obj.position.clone();
-            tempLine1.updateEnd(proj);
             proj.projectOnPlane(normal);
-            tempLine2.updateEnd(proj);
             proj.applyQuaternion(quat.invert());
-            frame.userData.xAxis.updateEnd(proj)
             if(path.getLength() < 1000){
                 path.lineTo(proj.x, proj.z);
                 let points = path.getPoints();
