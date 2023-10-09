@@ -81,7 +81,7 @@
             r: 2, r_ex: 0, r_ez: 0,
             V: 0, V_ex: Math.PI, V_ey: 0, V_ez: Math.PI/2,
             cube_friction: 0.1, cube_spinning_friction: 0.5,
-            camera_parent: null,
+            camera_parent: 'point_r',
         };
         let paramsFolder;
         const rigidBodies = [];
@@ -110,7 +110,7 @@
             });
             return model;
         }
-        bowl = await addModel('./bowl.glb');
+        //bowl = await addModel('./bowl.glb');
 
         Ammo().then(function(AmmoLib){
             Ammo = AmmoLib;
@@ -123,7 +123,7 @@
 
         function initGraphics(){
             canvas = document.querySelector('#c');
-            canvasHalfWidth = canvas.width/2;
+            canvasHalfWidth = canvas.width/2;  // for CSS overlay
             canvasHalfHeight = canvas.height/2;
             renderer = new THREE.WebGLRenderer({ canvas });
             renderer.shadowMap.enabled = true;
@@ -178,6 +178,7 @@
             paramsFolder.add(params, 'V_ey', 0, Math.PI, 0.01).listen();
             paramsFolder.add(params, 'V_ez', 0, Math.PI, Math.PI/4).listen();
             paramsFolder.add(params, 'camera_parent', { null:null, point_r:'point_r' }).onChange(setCameraParent);
+            paramsFolder.add({ reset:resetBallPosition }, 'reset').name('Reset ball position');
             paramsFolder.open();
 
             window.addEventListener('resize', onWindowResize);
@@ -277,7 +278,6 @@
             arrow_r = new Arrow(dirY, new THREE.Vector3(), 1, 0x707070);
             arrow_r.line.material.transparent = true;
             arrow_r.line.material.opacity = 0;
-            //arrow_V
             // Set position and rotation of arrow_r relative to arrow_R
             //  --->R
             //  --->r
@@ -296,28 +296,25 @@
             frame.userData.physicsBody.setFriction(10);
             arrow_R.children.push(frame);
             
+            // Box whose center represents the point R
             point_R = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.1, 0.1, 1, 1, 1), new THREE.MeshPhongMaterial({ transparent: true, opacity: 0 }));
             point_R.parent = arrow_R;
             point_R.userData.basePoint = new THREE.Vector3(0, 0, 0);
             arrow_R.children.push(point_R);
 
+            // point r
             point_r = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.05, 0.05, 1, 1, 1), new THREE.MeshPhongMaterial({ transparent: true, opacity: 1 }));
             point_r.parent = arrow_r;
             point_r.userData.basePoint = new THREE.Vector3(0, 0, 0);
             arrow_r.children.push(point_r);
             point_r.children.push(camera);
             
+            // Velocity vector
             arrow_V = new Arrow(dirY, new THREE.Vector3(), 1, 0x0);
             arrow_V.parent = arrow_r;
             arrow_V.userData.basePoint = new THREE.Vector3(0, 0, 0);
             arrow_r.children.push(arrow_V);
-            // Pivot
-            //pivot = createParalellepiped(0.5, 0.05, 0.5, 0, pos, quat, new THREE.MeshPhongMaterial({ color: 0x101010 }));
-            //pivot.parent = arrow_R;
-            //pivot.userData.basePoint = new THREE.Vector3(0, 6, 0);
-            //pivot.castShadow = true;
-            //pivot.receiveShadow = true;
-            //arrow_R.children.push(pivot);
+
             arrow_R.updateChildren();
             arrow_r.updateChildren();
             scene.add(arrow_R);
@@ -349,6 +346,7 @@
             ball.userData.physicsBody.setRollingFriction(0.3);
             ball.userData.physicsBody.setAnisotropicFriction(1);
             ball.userData.physicsBody.setDamping(0.1, 0.1); // linear damping, rotational damping
+            //resetBallPosition();
 
             // No spinningFriction available
             /*pos.set(0, 5, 0);
@@ -371,6 +369,31 @@
             path = new THREE.Path();
             path.lineTo(0, 0);
             linePath.rotation.set(Math.PI/2, 0, 0);
+        }
+
+        function resetBallPosition(){
+            const ballPos = new THREE.Vector3();
+            const framePos = new THREE.Vector3();
+            const quat = new THREE.Quaternion();
+            const relPos = new THREE.Vector3();
+            //const btInitialBallVel = new Ammo.btVector3(); 
+            frame.getWorldPosition(framePos);
+            frame.getWorldQuaternion(quat);
+            relPos.set(0.7, 0.2, 0);
+            relPos.applyQuaternion(quat);
+            ball.position.set(...framePos.add(relPos));
+            const btTransform = new Ammo.btTransform();
+            ball.getWorldPosition(ballPos);
+            btTransform.setIdentity();
+            btTransform.setOrigin(new Ammo.btVector3(ballPos.x, ballPos.y, ballPos.z));
+            btTransform.setRotation(new Ammo.btQuaternion(...ball.quaternion));
+            ball.userData.physicsBody.setWorldTransform(btTransform);
+            const btInitialBallVel = frame.userData.physicsBody.getAngularVelocity();
+            console.log(...frame.userData.WxR);
+            ball.userData.physicsBody.setLinearVelocity(new Ammo.btVector3());
+            ball.userData.physicsBody.setAngularVelocity(new Ammo.btVector3());
+            path = new THREE.Path();
+            path.lineTo(0, 0);
         }
 
         function createParalellepiped(sx, sy, sz, mass, pos, quat, material){
@@ -546,10 +569,10 @@
             let proj = obj.position.clone();
             proj.projectOnPlane(normal);
             proj.applyQuaternion(quat.invert());
-            if(path.getLength() < 1000){
+            if(path.getLength() < 50000){
                 path.lineTo(proj.x, proj.z);
                 let points = path.getPoints();
-                linePath.geometry.setFromPoints(points);
+                linePath.geometry.setFromPoints(points.slice(-1000));
                 linePath.geometry.attributes.position.needsUpdate = true;
             }
         }
@@ -603,7 +626,6 @@
             arrow_r.setLength2(params.r);
             arrow_V.setLength2(params.V);
             arrow_W.setLength2(W.y);
-            //camera.parent = params.camera_parent;
             
             // arrow_R world direction -> arrow_dir
             arrow_R.getWorldQuaternion(arrow_quat);
@@ -624,6 +646,7 @@
             arrow_WxR.setLength(Q.length());
             arrow_WxR.setDirection(Q);
             arrow_WxR.position.set(worldPos.x, worldPos.y, worldPos.z);
+            frame.userData.WxR = Q;
             // U = WxWxR
             U = W.clone().cross(Q);
             arrow_WxWxR.setLength(U.length());
@@ -648,7 +671,7 @@
             arrow_Vball.setDirection(ballV.normalize());
             arrow_Vball.position.set(ball.position.x, ball.position.y, ball.position.z);
             ballCor = W.clone().multiplyScalar(-2).cross(ballV);
-            arrow_VballCor.setLength(ballCor.length());
+            arrow_VballCor.setLength(ballCor.length() * 1.5);
             arrow_VballCor.setDirection(ballCor.normalize());
             arrow_VballCor.position.set(ball.position.x, ball.position.y, ball.position.z);
 
