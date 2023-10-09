@@ -82,6 +82,7 @@
             V: 0, V_ex: Math.PI, V_ey: 0, V_ez: 0,
             cube_friction: 0.1, cube_spinning_friction: 0.5,
             camera_parent: 'point_r',
+            demo: true,
         };
         let paramsFolder;
         const rigidBodies = [];
@@ -177,6 +178,7 @@
             paramsFolder.add(params, 'V_ey', 0, Math.PI, 0.01).listen();
             paramsFolder.add(params, 'V_ez', 0, Math.PI, Math.PI/4).listen();
             paramsFolder.add(params, 'camera_parent', { world:'world', point_r:'point_r' }).name('Camera rel position').onChange(setCameraParent);
+            paramsFolder.add(params, 'demo').listen();
             paramsFolder.add({ reset:resetBallPosition }, 'reset').name('Reset ball position');
 
             window.addEventListener('resize', onWindowResize);
@@ -729,7 +731,7 @@
             let modTime = clock.elapsedTime % (12*tF);
             //if(modTime > 0)...
             // R_ez 1/4*PI --> 1/2*PI
-            if(modTime > (2*tF) && modTime < (4*tF) && demoState === 0 && params.R_ez !== Math.PI/2){
+            if(params.demo && modTime > (2*tF) && modTime < (4*tF) && demoState === 0){
                 params.R_ez += Math.PI/128;
                 if(params.R_ez >= Math.PI/2){
                     params.R_ez = Math.PI/2;
@@ -737,7 +739,7 @@
                     resetBallPosition();
                 }
             }
-            if(modTime > (6*tF) && modTime < (8*tF) && demoState === 1 && params.R_ez !== 3/4*Math.PI){
+            if(params.demo && modTime > (6*tF) && modTime < (8*tF) && demoState === 1){
                 params.R_ez += Math.PI/128;
                 if(params.R_ez >= 3/4*Math.PI){
                     params.R_ez = 3/4*Math.PI;
@@ -745,7 +747,7 @@
                     resetBallPosition();
                 }
             }
-            if(modTime > (10*tF) && demoState === 2){
+            if(params.demo && modTime > (10*tF) && demoState === 2){
                 params.R_ez += Math.PI/128;
                 if(params.R_ez >= Math.PI-0.5){
                     params.R_ez = Math.PI-0.5;
