@@ -77,9 +77,9 @@
         let canvasHalfHeight;
         let collisionConfiguration, dispatcher, broadphase, solver, softBodySolver, physicsWorld, transformAux1;
         const params = { 
-            R: 1, R_ex: 0, R_ey: 0, R_ez: 0, R_wy: 0,
+            R: 1, R_ex: 0, R_ey: 0, R_ez: 0.5, R_wy: 0.3,
             r: 2, r_ex: 0, r_ez: 0,
-            V: 1.5, V_ex: Math.PI, V_ey: 0, V_ez: 0,
+            V: 0.5, V_ex: Math.PI, V_ey: 0, V_ez: Math.PI/2,
             cube_friction: 0.1, cube_spinning_friction: 0.5
         };
 
@@ -88,6 +88,7 @@
         let gravityConstant;
         const clock = new THREE.Clock();
         let bowl;
+        let btVect;
 
         // GLB
         // https://discourse.threejs.org/t/most-simple-way-to-wait-loading-in-gltf-loader/13896/4
@@ -239,7 +240,8 @@
         }
     
         let body, ball, cube, rope, pivot, frame, point_R, point_r, pendulumConstraint;
-        let arrow_R, arrow_r, arrow_W, arrow_WxR, arrow_WxWxR, arrow_V, arrow_Cor, line_CD, line_DR;
+        let arrow_R, arrow_r, arrow_W, arrow_WxR, arrow_WxWxR, arrow_V, arrow_Cor, arrow_Vball, arrow_VballCor;
+        let line_CD, line_DR;
         function createObjects(){
             const pos = new THREE.Vector3();
             const quat = new THREE.Quaternion();
@@ -271,7 +273,8 @@
             quat.set(0, 0, 0, 1);
             arrow_R = new Arrow(dirY, new THREE.Vector3(), 1, 0x0);
             arrow_r = new Arrow(dirY, new THREE.Vector3(), 1, 0x707070);
-            console.log(arrow_r);
+            arrow_r.line.material.transparent = true;
+            arrow_r.line.material.opacity = 0;
             //arrow_V
             // Set position and rotation of arrow_r relative to arrow_R
             //  --->R
@@ -290,16 +293,17 @@
             frame.receiveShadow = true;
             frame.userData.physicsBody.setFriction(10);
             arrow_R.children.push(frame);
+            
             point_R = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.1, 0.1, 1, 1, 1), new THREE.MeshPhongMaterial({ transparent: true, opacity: 0 }));
             point_R.parent = arrow_R;
             point_R.userData.basePoint = new THREE.Vector3(0, 0, 0);
             arrow_R.children.push(point_R);
+
             point_r = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.1, 0.1, 1, 1, 1), new THREE.MeshPhongMaterial({ transparent: true, opacity: 1 }));
             point_r.parent = arrow_r;
             point_r.userData.basePoint = new THREE.Vector3(0, 0, 0);
             arrow_r.children.push(point_r);
-            arrow_r.line.material.transparent = true;
-            arrow_r.line.material.opacity = 0;
+    
             arrow_V = new Arrow(dirY, new THREE.Vector3(), 1, 0x0);
             arrow_V.parent = arrow_r;
             arrow_V.userData.basePoint = new THREE.Vector3(0, 0, 0);
@@ -320,13 +324,15 @@
             arrow_WxR = new Arrow(dirY, new THREE.Vector3(), 1, 0x0);
             arrow_WxWxR = new Arrow(dirY, new THREE.Vector3(), 1, 0xff0000);
             arrow_Cor = new Arrow(dirY, new THREE.Vector3(), 1, 0xff0000);
-            scene.add(arrow_W, arrow_WxR, arrow_WxWxR, arrow_Cor);
+            arrow_Vball = new Arrow(dirY, new THREE.Vector3(), 1, 0x0);
+            arrow_VballCor = new Arrow(dirY, new THREE.Vector3(), 1, 0xff0000);
+            scene.add(arrow_W, arrow_WxR, arrow_WxWxR, arrow_Cor, arrow_Vball, arrow_VballCor);
             line_CD = new Line(new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 5, 0), 5, 0x0);
             line_DR = new Line(new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 5, 0), 5, 0x0);
             scene.add(line_CD, line_DR);
 
             // Ball
-            pos.set(0, 4, 0);
+            pos.set(0, 1.5, 0);
             quat.set(0, 0, 0, 1);
             const ballMass = 1;
             const ballRadius = 0.2;
@@ -520,16 +526,12 @@
         let worldPos = new THREE.Vector3();
         let W = new THREE.Vector3();
         let P, Q, U, V, Cor;
-        const label_V = document.body.appendChild(document.createElement("div"));
-        label_V.classList.add('overlay');
-        const label_W = document.body.appendChild(document.createElement("div"));
-        label_W.classList.add('overlay');
-        const label_WxR = document.body.appendChild(document.createElement("div"));
-        label_WxR.classList.add('overlay');
-        const label_WxWxR = document.body.appendChild(document.createElement("div"));
-        label_WxWxR.classList.add('overlay');
-        const label_Cor = document.body.appendChild(document.createElement("div"));
-        label_Cor.classList.add('overlay');
+        let ballV = new THREE.Vector3();
+        const label_V = document.body.appendChild(document.createElement("div")); label_V.classList.add('overlay');
+        const label_W = document.body.appendChild(document.createElement("div")); label_W.classList.add('overlay');
+        const label_WxR = document.body.appendChild(document.createElement("div")); label_WxR.classList.add('overlay');
+        const label_WxWxR = document.body.appendChild(document.createElement("div")); label_WxWxR.classList.add('overlay');
+        const label_Cor = document.body.appendChild(document.createElement("div")); label_Cor.classList.add('overlay');
         let overlayPos = new THREE.Vector3();
         function updatePhysics(deltaTime){
             let overlayIntUpdate = true; //clock.elapsedTime % 0.25 > 0.125;
@@ -546,7 +548,6 @@
             arrow_r.setLength2(params.r);
             arrow_V.setLength2(params.V);
             arrow_W.setLength2(W.y);
-            //point_r.position.set(1, 1, 1);
             
             // arrow_R world direction -> arrow_dir
             arrow_R.getWorldQuaternion(arrow_quat);
@@ -574,6 +575,7 @@
             arrow_WxWxR.position.set(worldPos.x, worldPos.y, worldPos.z);
 
             // Coriolis = -2WxV
+            // Custom vector V
             point_r.getWorldPosition(worldPos);
             arrow_V.getWorldQuaternion(arrow_quat);
             arrow_dir.set(0, 1, 0);
@@ -583,6 +585,14 @@
             arrow_Cor.setLength(Cor.length());
             arrow_Cor.setDirection(Cor.normalize());
             arrow_Cor.position.set(worldPos.x, worldPos.y, worldPos.z);
+            // Ball velocity vector
+            btVect = ball.userData.physicsBody.getLinearVelocity();
+            ballV.set(btVect.x(), btVect.y(), btVect.z());
+            arrow_Vball.setLength(ballV.length());
+            arrow_Vball.setDirection(ballV.normalize());
+            arrow_Vball.position.set(ball.position.x, ball.position.y, ball.position.z);
+            Cor = W.clone().multiplyScalar(-2).cross(ballV);
+            
 
             if(overlayIntUpdate){
                 if(W.length() > 0.2){
