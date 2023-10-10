@@ -82,7 +82,8 @@
             V: 0, V_ex: Math.PI, V_ey: 0, V_ez: 0,
             cube_friction: 0.1, cube_spinning_friction: 0.5,
             camera_parent: 'point_r',
-            demo: true,
+            demo: true, text_overlay: false, trace: true,
+            pixel_ratio: 1,
         };
         let paramsFolder;
         const rigidBodies = [];
@@ -90,6 +91,7 @@
         let gravityConstant;
         const clock = new THREE.Clock();
         let bowl;
+        const pixel_ratios = [1];
 
         // GLB
         // https://discourse.threejs.org/t/most-simple-way-to-wait-loading-in-gltf-loader/13896/4
@@ -122,11 +124,14 @@
         });
 
         function initGraphics(){
+            for(let i = 1; i < window.devicePixelRatio; i++){
+                pixel_ratios.push(i);
+            }
             canvas = document.querySelector('#c');
             canvasHalfWidth = canvas.width/2;  // for CSS overlay
             canvasHalfHeight = canvas.height/2;
             renderer = new THREE.WebGLRenderer({ canvas });
-            //renderer.setPixelRatio(window.devicePixelRatio);
+            renderer.setPixelRatio(1);
             renderer.shadowMap.enabled = true;
             camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
             camera.position.set(5, 4, 5);
@@ -180,9 +185,18 @@
             paramsFolder.add(params, 'V_ez', 0, Math.PI, Math.PI/4).listen();
             paramsFolder.add(params, 'camera_parent', { world:'world', point_r:'point_r' }).name('Camera rel position').onChange(setCameraParent);
             paramsFolder.add(params, 'demo').listen();
+            paramsFolder.add(params, 'text_overlay').name('Text Overlay').listen();
+            paramsFolder.add(params, 'pixel_ratio', pixel_ratios/*{ r1:'1', rd: 'device' }*/).name('Pixel Ratio').onChange(setPixelRatio);
             paramsFolder.add({ reset:resetBallPosition }, 'reset').name('Reset ball position');
 
             window.addEventListener('resize', onWindowResize);
+        }
+
+        function setPixelRatio(str){
+            const num = Number(str);
+            if(num.isInteger()){
+                renderer.setPixelRatio(Number(str));
+            }
         }
 
         function initPhysics(){
@@ -611,11 +625,11 @@
         let W = new THREE.Vector3();
         let P, Q, U, V, Cor, ballCor, btVect;
         let ballV = new THREE.Vector3();
-        const label_V = document.body.appendChild(document.createElement("div")); label_V.classList.add('overlay');
-        const label_W = document.body.appendChild(document.createElement("div")); label_W.classList.add('overlay');
-        const label_WxR = document.body.appendChild(document.createElement("div")); label_WxR.classList.add('overlay');
-        const label_WxWxR = document.body.appendChild(document.createElement("div")); label_WxWxR.classList.add('overlay');
-        const label_Cor = document.body.appendChild(document.createElement("div")); label_Cor.classList.add('overlay');
+        const label_V = document.body.appendChild(document.createElement('div')); label_V.classList.add('overlay');
+        const label_W = document.body.appendChild(document.createElement('div')); label_W.classList.add('overlay');
+        const label_WxR = document.body.appendChild(document.createElement('div')); label_WxR.classList.add('overlay');
+        const label_WxWxR = document.body.appendChild(document.createElement('div')); label_WxWxR.classList.add('overlay');
+        const label_Cor = document.body.appendChild(document.createElement('div')); label_Cor.classList.add('overlay');
         let overlayPos = new THREE.Vector3();
         let demoState = -1;
         function updatePhysics(deltaTime){
@@ -681,11 +695,11 @@
             arrow_VballCor.setDirection(ballCor.normalize());
             arrow_VballCor.position.set(ball.position.x, ball.position.y, ball.position.z);
 
-            if(W.length() > 0.2){ updateArrowOverlay(arrow_W, label_W, '<b>&omega;</b>'); } else { label_W.innerHTML = ''; }
-            if(Q.length() > 0.1){ updateArrowOverlay(arrow_WxR, label_WxR, '<b>&omega;xR</b>'); } else { label_WxR.innerHTML = ''; }
-            if(U.length() > 0.1){ updateArrowOverlay(arrow_WxWxR, label_WxWxR, '<b>-&omega;x(&omega;xR)</b>'); } else { label_WxWxR.innerHTML = ''; }
-            if(V.length() > 0.1){ updateArrowOverlay(arrow_V,  label_V, '<b>V</b>'); } else { label_V.innerHTML = ''; }
-            if(Cor.length()>0.1){ updateArrowOverlay(arrow_Cor, label_Cor, '<b>-2&omega;xV</b>'); } else { label_Cor.innerHTML = ''; }
+            if(params.text_overlay && W.length() > 0.2){ updateArrowOverlay(arrow_W, label_W, '<b>&omega;</b>'); } else { label_W.innerHTML = ''; }
+            if(params.text_overlay && Q.length() > 0.1){ updateArrowOverlay(arrow_WxR, label_WxR, '<b>&omega;xR</b>'); } else { label_WxR.innerHTML = ''; }
+            if(params.text_overlay && U.length() > 0.1){ updateArrowOverlay(arrow_WxWxR, label_WxWxR, '<b>-&omega;x(&omega;xR)</b>'); } else { label_WxWxR.innerHTML = ''; }
+            if(params.text_overlay && V.length() > 0.1){ updateArrowOverlay(arrow_V,  label_V, '<b>V</b>'); } else { label_V.innerHTML = ''; }
+            if(params.text_overlay && Cor.length()>0.1){ updateArrowOverlay(arrow_Cor, label_Cor, '<b>-2&omega;xV</b>'); } else { label_Cor.innerHTML = ''; }
 
             // sync moving frame in (Ammo) physicsWorld
             const btTransform = new Ammo.btTransform();
@@ -698,7 +712,7 @@
             //const btVec = new Ammo.btVector3(worldPos.x, worldPos.y, worldPos.z);
             //pendulumConstraint.setPivotA(btVec);
             //dataDiv.innerHTML += `frame World Pos: ${frameWorldPos.x.toFixed(3)}, ${frameWorldPos.y.toFixed(3)}, ${frameWorldPos.z.toFixed(3)}<br/>`;
-            tracePath(ball);
+            if(params.trace){ tracePath(ball); }
 
             // Step world
             physicsWorld.stepSimulation(deltaTime, 10);
