@@ -186,7 +186,8 @@
             paramsFolder.add(params, 'camera_parent', { world:'world', point_r:'point_r' }).name('Camera rel position').onChange(setCameraParent);
             paramsFolder.add(params, 'demo').listen();
             paramsFolder.add(params, 'text_overlay').name('Text Overlay').listen();
-            paramsFolder.add(params, 'pixel_ratio', pixel_ratios/*{ r1:'1', rd: 'device' }*/).name('Pixel Ratio').onChange(setPixelRatio);
+            paramsFolder.add(params, 'trace').onChange(setTrace);
+            paramsFolder.add(params, 'pixel_ratio', pixel_ratios).name('Pixel Ratio').onChange(setPixelRatio);
             paramsFolder.add({ reset:resetBallPosition }, 'reset').name('Reset ball position');
 
             window.addEventListener('resize', onWindowResize);
@@ -409,6 +410,9 @@
             ball.userData.physicsBody.setAngularVelocity(new Ammo.btVector3());
             path = new THREE.Path();
             path.lineTo(0, 0);
+            let points = path.getPoints();
+            linePath.geometry.setFromPoints(points.slice(-1000));
+            linePath.geometry.attributes.position.needsUpdate = true;
         }
 
         function createParalellepiped(sx, sy, sz, mass, pos, quat, material){
@@ -575,6 +579,16 @@
             label.innerHTML = text;
         }
 
+        function setTrace(value){
+            if(value === false){
+                path = new THREE.Path();
+                path.lineTo(0, 0);
+                let points = path.getPoints();
+                linePath.geometry.setFromPoints(points.slice(-1000));
+                linePath.geometry.attributes.position.needsUpdate = true;
+            }
+        }
+
         function tracePath(obj){
             const quat = new THREE.Quaternion();
             const normal = new THREE.Vector3();  // normal vector to the frame mesh
@@ -632,6 +646,8 @@
         const label_Cor = document.body.appendChild(document.createElement('div')); label_Cor.classList.add('overlay');
         let overlayPos = new THREE.Vector3();
         let demoState = -1;
+        let tF = 2;
+        let angleStepDiv = 192;
         function updatePhysics(deltaTime){
             W.set(0, params.R_wy, 0);
             arrow_R.rotation.x = params.R_ex;
@@ -742,12 +758,12 @@
                 resetBallPosition();
                 demoState = 0;
             }
-            let tF = 2;
+            
             let modTime = clock.elapsedTime % (12*tF);
             //if(modTime > 0)...
             // R_ez 1/4*PI --> 1/2*PI
             if(params.demo && modTime > (2*tF) && modTime < (4*tF) && demoState === 0){
-                params.R_ez += Math.PI/128;
+                params.R_ez += Math.PI/angleStepDiv;
                 if(params.R_ez >= Math.PI/2){
                     params.R_ez = Math.PI/2;
                     demoState = 1;
@@ -755,7 +771,7 @@
                 }
             }
             if(params.demo && modTime > (6*tF) && modTime < (8*tF) && demoState === 1){
-                params.R_ez += Math.PI/128;
+                params.R_ez += Math.PI/angleStepDiv;
                 if(params.R_ez >= 3/4*Math.PI){
                     params.R_ez = 3/4*Math.PI;
                     demoState = 2;
@@ -763,7 +779,7 @@
                 }
             }
             if(params.demo && modTime > (10*tF) && demoState === 2){
-                params.R_ez += Math.PI/128;
+                params.R_ez += Math.PI/angleStepDiv;
                 if(params.R_ez >= Math.PI-0.5){
                     params.R_ez = Math.PI-0.5;
                     demoState = 2;
