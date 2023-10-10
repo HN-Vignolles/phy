@@ -194,7 +194,7 @@
 
         function setPixelRatio(str){
             const num = Number(str);
-            if(num.isInteger()){
+            if(Number.isInteger(num)){
                 renderer.setPixelRatio(Number(str));
             }
         }
