@@ -126,7 +126,7 @@
             canvasHalfWidth = canvas.width/2;  // for CSS overlay
             canvasHalfHeight = canvas.height/2;
             renderer = new THREE.WebGLRenderer({ canvas });
-            renderer.setPixelRatio(window.devicePixelRatio);
+            //renderer.setPixelRatio(window.devicePixelRatio);
             renderer.shadowMap.enabled = true;
             camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
             camera.position.set(5, 4, 5);
