@@ -213,10 +213,10 @@
             window.addEventListener('keydown', function(event){
                 switch(event.keyCode){
                 case 65:  // A
-                    rodMovement = 1;
+                    rodMovement = -1;
                     break;
                 case 68:  // D
-                    rodMovement = -1;
+                    rodMovement = 1;
                     break;
                 case 83: // S
                     removeConstraint();
@@ -232,10 +232,13 @@
             const buttonA = document.querySelector('#A');
             const buttonS = document.querySelector('#S');
             const buttonD = document.querySelector('#D');
-            buttonA.addEventListener('touchstart', function(event){ rodMovement = 1; });
+            const buttonW = document.querySelector('#W');
+            buttonA.addEventListener('touchstart', function(event){ rodMovement = -1; });
             buttonA.addEventListener('touchend', function(event){ rodMovement = 0; });
-            buttonD.addEventListener('touchstart', function(event){ rodMovement = -1; });
+            buttonD.addEventListener('touchstart', function(event){ rodMovement = 1; });
             buttonD.addEventListener('touchend', function(event){ rodMovement = 0; });
+            buttonS.addEventListener('touchstart', function(event){ event.preventDefault(); removeConstraint(); });
+            buttonW.addEventListener('touchstart', function(event){ event.preventDefault(); resetPosition(); });
         }
 
         // https://stackoverflow.com/questions/72550511/ammojs-btbvhtrianglemeshshape-not-colliding?noredirect=1&lq=1
@@ -536,10 +539,14 @@
             renderer.setSize(window.innerWidth, window.innerHeight);
             canvasHalfWidth = canvas.width/2;
             canvasHalfHeight = canvas.height/2;
-            divA.style.left = `${canvasHalfWidth - canvasHalfWidth*0.7}px`;
-            divS.style.left = `${canvasHalfWidth - canvasHalfWidth*0.2}px`;
+            divA.style.left = `${canvasHalfWidth - canvasHalfWidth*(3/5) - divA.clientWidth/2}px`;
+            divD.style.left = `${canvasHalfWidth - canvasHalfWidth*(1/5) - divS.clientWidth/2}px`;
+            divS.style.left = `${canvasHalfWidth + canvasHalfWidth*(1/5) - divD.clientWidth/2}px`;
+            divW.style.left = `${canvasHalfWidth + canvasHalfWidth*(3/5) - divW.clientWidth/2}px`;
             divA.style.top = `${canvasHalfHeight + canvasHalfHeight*0.7}px`;
             divS.style.top = `${canvasHalfHeight + canvasHalfHeight*0.7}px`;
+            divD.style.top = `${canvasHalfHeight + canvasHalfHeight*0.7}px`;
+            divW.style.top = `${canvasHalfHeight + canvasHalfHeight*0.7}px`;
         }
 
         class Arrow extends THREE.ArrowHelper {
