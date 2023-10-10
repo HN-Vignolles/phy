@@ -25,10 +25,18 @@
         .flex-item-right {
             flex: 20%
         }
+        .touch-button {
+            opacity: 0.2;
+            visibility: hidden;
+        }
         @media (max-width: 800px) {
             .flex-item-left, .flex-item-right {
                 flex: 100%;
                 justify-content: center;
+            }
+            .touch-button {
+                visibility: visible;
+                position: absolute;
             }
         }
         .stats {
@@ -48,6 +56,13 @@
             font-size: 1.5rem;
             justify-content: center;
         }
+        .circle-button {
+            display: block;
+            height: 80px;
+            width: 80px;
+            border-radius: 50%;
+            border: 1px solid black;
+        }
     </style>
 </head>
 <body>
@@ -55,6 +70,10 @@
         <div class="stats" id="data"></div>
         <canvas id="c"></canvas>
     </div>
+    <div id="divA" class="touch-button"><button class="circle-button" id="A">A</button></div>
+    <div id="divS" class="touch-button"><button class="circle-button" id="S">S</button></div>
+    <div id="divD" class="touch-button"><button class="circle-button" id="D">D</button></div>
+    <div id="divW" class="touch-button"><button class="circle-button" id="W">W</button></div>
     <script type="importmap">
         {
             "imports": {
@@ -85,6 +104,11 @@
         const margin = 0.05;
         let gravityConstant = -9.8;
         const clock = new THREE.Clock();
+
+        const divA = document.querySelector('#divA');
+        const divS = document.querySelector('#divS');
+        const divD = document.querySelector('#divD');
+        const divW = document.querySelector('#divW');
 
         // GLB
         // https://discourse.threejs.org/t/most-simple-way-to-wait-loading-in-gltf-loader/13896/4
@@ -168,7 +192,7 @@
             paramsFolder.add(params, 'R_ez', 0, Math.PI, Math.PI/16).listen();
             paramsFolder.add(params, 'R_wy', -5, 5, 0.1).name('R_ωy').listen();
             paramsFolder.add({ reset:resetPosition }, 'reset').name('Reset position');
-            paramsFolder.open();
+            //paramsFolder.open();
 
             window.addEventListener('resize', onWindowResize);
         }
@@ -188,7 +212,7 @@
         function initInput(){
             window.addEventListener('keydown', function(event){
                 switch(event.keyCode){
-                case 65:  // S
+                case 65:  // A
                     rodMovement = 1;
                     break;
                 case 68:  // D
@@ -197,11 +221,21 @@
                 case 83: // S
                     removeConstraint();
                     break;
+                case 87: // W
+                    resetPosition();
+                    break;
                 }
             });
             window.addEventListener('keyup', function(){
                 rodMovement = 0;
             });
+            const buttonA = document.querySelector('#A');
+            const buttonS = document.querySelector('#S');
+            const buttonD = document.querySelector('#D');
+            buttonA.addEventListener('touchstart', function(event){ rodMovement = 1; });
+            buttonA.addEventListener('touchend', function(event){ rodMovement = 0; });
+            buttonD.addEventListener('touchstart', function(event){ rodMovement = -1; });
+            buttonD.addEventListener('touchend', function(event){ rodMovement = 0; });
         }
 
         // https://stackoverflow.com/questions/72550511/ammojs-btbvhtrianglemeshshape-not-colliding?noredirect=1&lq=1
@@ -461,7 +495,7 @@
 
         const dataDiv = document.querySelector('#data');
         let btVect;
-        const label_V = document.body.appendChild(document.createElement("div")); label_V.classList.add('overlay');
+        //const label_V = document.body.appendChild(document.createElement("div")); label_V.classList.add('overlay');
         let overlayPos = new THREE.Vector3();
         function updatePhysics(deltaTime){
             //hinge.enableAngularMotor(true, 1.5*rodMovement, 50);
@@ -502,6 +536,10 @@
             renderer.setSize(window.innerWidth, window.innerHeight);
             canvasHalfWidth = canvas.width/2;
             canvasHalfHeight = canvas.height/2;
+            divA.style.left = `${canvasHalfWidth - canvasHalfWidth*0.7}px`;
+            divS.style.left = `${canvasHalfWidth - canvasHalfWidth*0.2}px`;
+            divA.style.top = `${canvasHalfHeight + canvasHalfHeight*0.7}px`;
+            divS.style.top = `${canvasHalfHeight + canvasHalfHeight*0.7}px`;
         }
 
         class Arrow extends THREE.ArrowHelper {
