@@ -1,0 +1,437 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no" />
+    <title>Phy1</title>
+    <style>
+        [v-cloak] {
+            display: none;
+        }
+        body {
+            background-color: black;
+        }
+        .flex-container {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            justify-content: center;
+        }
+        .flex-item-left {
+            flex: 70%;
+            display: flex;
+            justify-content: center;
+        }
+        .flex-item-right {
+            flex: 20%
+        }
+        .touch-button {
+            opacity: 0.2;
+            visibility: hidden;
+        }
+        @media (max-width: 800px) {
+            .flex-item-left, .flex-item-right {
+                flex: 100%;
+                justify-content: center;
+            }
+            .touch-button {
+                visibility: visible;
+                position: absolute;
+            }
+        }
+        .stats {
+            color: black;
+            font-family: monospace;
+            position: absolute;
+            top: 10px;
+            width: 100%;
+            text-align: center;
+            z-index: 100;
+            display: block;
+        }
+        .overlay {
+            position: absolute;
+            z-index: 100;
+            font-family: 'Gill Sans', 'Gill Sans MT', Calibri, 'Trebuchet MS', sans-serif;
+            font-size: 1.5rem;
+            justify-content: center;
+        }
+        .circle-button {
+            display: block;
+            height: 80px;
+            width: 80px;
+            border-radius: 50%;
+            border: 1px solid black;
+        }
+    </style>
+</head>
+<body>
+    <div id="app">
+        <div class="stats" id="data"></div>
+        <canvas id="c"></canvas>
+    </div>
+    <div id="divA" class="touch-button"><button class="circle-button" id="A">A</button></div>
+    <div id="divS" class="touch-button"><button class="circle-button" id="S">S</button></div>
+    <div id="divD" class="touch-button"><button class="circle-button" id="D">D</button></div>
+    <div id="divW" class="touch-button"><button class="circle-button" id="W">W</button></div>
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@v0.157.0/build/three.module.js",
+                "three/addons/": "https://unpkg.com/three@v0.157.0/examples/jsm/",
+                "dat.gui": "https://unpkg.com/dat.gui@0.7.7/build/dat.gui.module.js"
+            }
+        }
+    </script>
+    <script src="https://unpkg.com/three@v0.157.0/examples/jsm/libs/ammo.wasm.js"></script>
+    <script type="module">
+        // Based on https://github.com/mrdoob/three.js/blob/master/examples/physics_ammo_rope.html
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+        import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+        import { GUI } from 'dat.gui';
+
+        let canvas, renderer, camera, scene, controls;
+        let canvasHalfWidth;
+        let canvasHalfHeight;
+        let collisionConfiguration, dispatcher, broadphase, solver, softBodySolver, physicsWorld, transformAux1;
+        let rodMovement = 0;
+        const params = {
+            R: 2, R_rx: 0, R_ry: 0, R_rz: 0,
+            Rod_quat_x: 1, Rod_quat_y: 0, Rod_quat_z: 0, Rod_quat_w: 1,
+            F: 1,
+        };
+        let paramsFolder;
+        const rigidBodies = [];
+        const margin = 0.05;
+        let gravityConstant = 0;
+        const clock = new THREE.Clock();
+        let worldPos = new THREE.Vector3();
+
+        Ammo().then(function(AmmoLib){
+            Ammo = AmmoLib;
+            initGraphics();
+            onWindowResize();
+            initPhysics();
+            createObjects();
+            //initInput();
+            animate();
+        });
+
+        function initGraphics(){
+            canvas = document.querySelector('#c');
+            canvasHalfWidth = canvas.width/2;  // for CSS overlay
+            canvasHalfHeight = canvas.height/2;
+            renderer = new THREE.WebGLRenderer({ canvas });
+            renderer.shadowMap.enabled = true;
+            camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.set(10, 3, 0);
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x041a40);
+            scene.fog = new THREE.FogExp2(0x303030, 0.025);
+
+            // Light
+            // DirectionalLight camera -> Orthographic
+            // SpotLight camera -> Perspective
+            const ambientLight = new THREE.AmbientLight(0xbbbbbb, 0.1);
+            //scene.add(ambientLight);
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 2);
+            directionalLight.position.set(8, 10, 5);
+            directionalLight.castShadow = true;
+            const d = 10;
+            directionalLight.shadow.camera.left = -d;
+            directionalLight.shadow.camera.right = d;
+            directionalLight.shadow.camera.top = d;
+            directionalLight.shadow.camera.bottom = -d;
+            directionalLight.shadow.camera.near = 2;
+            directionalLight.shadow.camera.far = 50;
+            directionalLight.shadow.mapSize.x = 1024;
+            directionalLight.shadow.mapSize.y = 1024;
+            scene.add(directionalLight);
+            const directionalLightHelper = new THREE.CameraHelper(directionalLight.shadow.camera);
+            //scene.add(directionalLightHelper);
+
+            // Orbit Controls
+            controls = new OrbitControls(camera, renderer.domElement);
+            controls.listenToKeyEvents(window);
+            //controls.enableDamping = true; // an animation loop is required when either damping or auto-rotation are enabled
+            //controls.dampingFactor = 0.05;
+            controls.screenSpacePanning = true;
+            controls.minDistance = 1;
+            controls.maxDistance = 30;
+            controls.maxPolarAngle = Math.PI / 2;
+            controls.target.set(0, 1.5, 0);
+
+            const gui = new GUI();
+            paramsFolder = gui.addFolder('Params');
+            paramsFolder.add(params, 'R', -4, 4, 0.1).name('|R|').listen();
+            paramsFolder.add(params, 'R_rx', 0, Math.PI, Math.PI/16).listen();
+            paramsFolder.add(params, 'R_ry', 0, Math.PI, Math.PI/16).listen();
+            paramsFolder.add(params, 'R_rz', 0, Math.PI, Math.PI/16).listen();
+            paramsFolder.add(params, 'Rod_quat_x', 0, Math.PI, Math.PI/16).listen();
+            paramsFolder.add(params, 'Rod_quat_y', 0, Math.PI, Math.PI/16).listen();
+            paramsFolder.add(params, 'Rod_quat_z', 0, Math.PI, Math.PI/16).listen();
+            paramsFolder.add(params, 'Rod_quat_w', 0, Math.PI, Math.PI/16).listen();
+            paramsFolder.add(params, 'F', 0, 1, 0.1).listen();
+            paramsFolder.add({ reset:resetPosition }, 'reset').name('Reset position');
+
+            window.addEventListener('resize', onWindowResize);
+        }
+
+        function initPhysics(){
+            collisionConfiguration = new Ammo.btSoftBodyRigidBodyCollisionConfiguration();  // collision detection and response configuration
+            dispatcher = new Ammo.btCollisionDispatcher(collisionConfiguration);  // dispatches collision events to the appropriate collision objects
+            broadphase = new Ammo.btDbvtBroadphase();  // init: broad-phase collision detection algorithm using a dynamic bounding volume tree
+            solver = new Ammo.btSequentialImpulseConstraintSolver();  // Solver for constraints and forces
+            softBodySolver = new Ammo.btDefaultSoftBodySolver();
+            physicsWorld = new Ammo.btSoftRigidDynamicsWorld(dispatcher, broadphase, solver, collisionConfiguration, softBodySolver);
+            physicsWorld.setGravity(new Ammo.btVector3(0, gravityConstant, 0));
+            physicsWorld.getWorldInfo().set_m_gravity(new Ammo.btVector3(0, gravityConstant, 0));
+            transformAux1 = new Ammo.btTransform();  // auxiliary transformation object (e.g. translations and rotations)
+        }
+
+        let rod, point_R;
+        let arrow_R, arrow_V, arrow_W;
+        let rodPos;
+        function createObjects(){
+            const pos = new THREE.Vector3();
+            const quat = new THREE.Quaternion();
+
+            // Ground
+            pos.set(0, -0.5, 0);  // position
+            quat.set(0, 0, 0, 1); // rotation
+            const groundM = new THREE.MeshPhongMaterial({ color: 0x555555 });
+            const ground = createParalellepiped(40, 1, 40, 0, pos, quat, groundM);
+            ground.receiveShadow = true;
+            const gridHelper = new THREE.GridHelper(20);
+            scene.add(gridHelper);
+
+            // Origin
+            const worldOrigin = new THREE.Vector3();
+            const dirY = new THREE.Vector3(0, 1, 0);
+            const arrowX = new THREE.ArrowHelper(new THREE.Vector3(1, 0, 0), worldOrigin, 0.5, 0xff0000);
+            const arrowY = new THREE.ArrowHelper(new THREE.Vector3(0, 1, 0), worldOrigin, 0.5, 0x00ff00);
+            const arrowZ = new THREE.ArrowHelper(new THREE.Vector3(0, 0, 1), worldOrigin, 0.5, 0x0000ff);
+            scene.add(arrowX, arrowY, arrowZ);
+            camera.lookAt(0, 2, 0);
+            
+            // Rod. arrow_R is just the position of the Rod.
+            // (This is not a Relative Motion example)
+            const rodHeight = 2;
+            const rodSide = 0.2;
+            const rodMass = 1;
+            pos.set(0, 0, 0);
+            quat.set(0, 0, 0, 1);
+            arrow_R = new Arrow(dirY, new THREE.Vector3(), 1, 0x0);
+            point_R = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.1, 0.1, 1, 1, 1), new THREE.MeshPhongMaterial({ transparent: true, opacity: 0 }));
+            point_R.parent = arrow_R;
+            point_R.userData.basePoint = new THREE.Vector3(0, 0, 0);
+            arrow_R.children.push(point_R);
+            arrow_R.updateChildren();
+            rod = createParalellepiped(rodSide, rodHeight, rodSide, rodMass, pos, quat, new THREE.MeshPhongMaterial({ color: 0xf02050 }));
+            rod.castShadow = true;
+            rod.receiveShadow = true;
+            rod.userData.physicsBody.setFriction(0.8);
+            scene.add(arrow_R, rod);
+            resetPosition();
+        }
+
+        function resetPosition(){
+            const btTransform = new Ammo.btTransform();
+            point_R.getWorldPosition(worldPos);
+            btTransform.setIdentity();
+            btTransform.setOrigin(new Ammo.btVector3(worldPos.x, worldPos.y, worldPos.z));
+            btTransform.setRotation(new Ammo.btQuaternion(params.Rod_quat_x, params.Rod_quat_y, params.Rod_quat_z, params.Rod_quat_w));
+            rod.userData.physicsBody.setWorldTransform(btTransform);
+            arrow_R.updateChildren();
+            const motionState = new Ammo.btDefaultMotionState(btTransform);
+            rod.userData.physicsBody.setMotionState(motionState);
+            rod.userData.physicsBody.setLinearVelocity(new Ammo.btVector3());
+            rod.userData.physicsBody.setAngularVelocity(new Ammo.btVector3());
+        }
+
+        function createParalellepiped(sx, sy, sz, mass, pos, quat, material){
+            const threeObject = new THREE.Mesh(new THREE.BoxGeometry(sx, sy, sz, 1, 1, 1), material);
+            const shape = new Ammo.btBoxShape(new Ammo.btVector3(sx * 0.5, sy * 0.5, sz * 0.5));
+            shape.setMargin(margin);
+            createRigidBody(threeObject, shape, mass, pos, quat);
+            return threeObject;
+        }
+
+        function createRigidBody(threeObject, physicsShape, mass, pos, quat){
+            threeObject.position.copy(pos);     // initial position and
+            threeObject.quaternion.copy(quat);  // rotation (orientation)
+            const transform = new Ammo.btTransform();
+            transform.setIdentity();
+            transform.setOrigin(new Ammo.btVector3(pos.x, pos.y, pos.z));
+            transform.setRotation(new Ammo.btQuaternion(quat.x, quat.y, quat.z, quat.w));
+            const motionState = new Ammo.btDefaultMotionState(transform);
+            const localInertia = new Ammo.btVector3(0, 0, 0);
+            // LocalInertia refers to the moment of inertia of an object with respect to 
+            // its local coordinate system or its center of mass.
+            physicsShape.calculateLocalInertia(mass, localInertia);
+            const rbInfo = new Ammo.btRigidBodyConstructionInfo(mass, motionState, physicsShape, localInertia);
+            const body = new Ammo.btRigidBody(rbInfo);
+            threeObject.userData.physicsBody = body;
+            scene.add(threeObject);
+            if(mass > 0){
+                rigidBodies.push(threeObject);
+                // Disable deactivation
+                body.setActivationState(4);
+            }
+            physicsWorld.addRigidBody(body);
+        }
+
+        function animate(){
+            requestAnimationFrame(animate);
+            render();
+            //stats.update();
+        }
+
+        function render(){
+            const deltaTime = clock.getDelta();
+            updatePhysics(deltaTime);
+            renderer.render(scene, camera);
+        }
+
+        const dataDiv = document.querySelector('#data');
+        let arrow_dir = new THREE.Vector3();
+        let arrow_quat = new THREE.Quaternion();
+        let btVect;
+        
+        //const label_V = document.body.appendChild(document.createElement("div")); label_V.classList.add('overlay');
+        let overlayPos = new THREE.Vector3();
+        function updatePhysics(deltaTime){
+            arrow_R.rotation.x = params.R_rx;
+            //arrow_R.rotation.y += params.R_wy*deltaTime;
+            arrow_R.rotation.y = params.R_ry;
+            arrow_R.rotation.z = params.R_rz;
+            arrow_R.setLength2(params.R);
+            resetPosition();
+
+            // Step world
+            physicsWorld.stepSimulation(deltaTime, 10);
+            // cf. applyTorque, applyCentralForce
+            //let tVect = rod.position.clone().normalize().multiplyScalar(-6);
+
+            // Update all rigid bodies in (Three) scene
+            for(let i = 0, il = rigidBodies.length; i < il; i ++){
+                const objThree = rigidBodies[i];
+                const objPhys = objThree.userData.physicsBody;
+                // The motion state represents the position and orientation of the object in the physics simulation at a specific time step.
+                const ms = objPhys.getMotionState();
+                if(ms){
+                    // If a motion state is available, it proceeds to update the position and orientation of the three.js object
+                    // to match the current state of the physics simulation.
+                    ms.getWorldTransform(transformAux1);
+                    const p = transformAux1.getOrigin();
+                    const q = transformAux1.getRotation();
+                    objThree.position.set(p.x(), p.y(), p.z());
+                    objThree.quaternion.set(q.x(), q.y(), q.z(), q.w());
+                    // This ensures that the graphical representation of the object is synchronized with its physics simulation state.
+                }
+            }
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            canvasHalfWidth = canvas.width/2;
+            canvasHalfHeight = canvas.height/2;
+            divA.style.left = `${canvasHalfWidth - canvasHalfWidth*(3/5) - divA.clientWidth/2}px`;
+            divD.style.left = `${canvasHalfWidth - canvasHalfWidth*(1/5) - divS.clientWidth/2}px`;
+            divS.style.left = `${canvasHalfWidth + canvasHalfWidth*(1/5) - divD.clientWidth/2}px`;
+            divW.style.left = `${canvasHalfWidth + canvasHalfWidth*(3/5) - divW.clientWidth/2}px`;
+            divA.style.top = `${canvasHalfHeight + canvasHalfHeight*0.7}px`;
+            divS.style.top = `${canvasHalfHeight + canvasHalfHeight*0.7}px`;
+            divD.style.top = `${canvasHalfHeight + canvasHalfHeight*0.7}px`;
+            divW.style.top = `${canvasHalfHeight + canvasHalfHeight*0.7}px`;
+        }
+
+        class Arrow extends THREE.ArrowHelper {
+            constructor(
+                dir = new THREE.Vector3(0, 0, 1), 
+                origin = new THREE.Vector3(0, 0, 0),
+                length = 1, color = 0xffff00, headLength = length*0.2, headWidth = headLength*0.2
+            ){
+                super(dir.clone().normalize(), origin, length, color, headLength, headWidth);
+                this.type = "Arrow";
+                this.length = length;
+                this.otd = 1;
+                const onRotationChange = () => {
+                    this.quaternion.setFromEuler(this.rotation, false);
+                }
+                this.rotation._onChange(onRotationChange);
+                this.endpoint = new THREE.Vector3(0, length, 0);
+            }
+            // FIXME
+            setLength2(length, headLength = length*0.2, headWidth = headLength*0.2){
+                super.setLength(length, headLength = length*0.2, headWidth = headLength*0.2);
+                this.length = length;
+                this.endpoint.y = length;
+                this.updateChildren();
+            }
+            updateChildren(){
+                this.children.slice(2).forEach((obj) => {
+                    let basePoint = obj.userData.basePoint;
+                    obj.position.set(this.endpoint.x + basePoint.x, this.endpoint.y + basePoint.y, this.endpoint.z + basePoint.z);
+                })
+            }
+        }
+
+        class Line extends THREE.Line {
+            constructor(start, end, scale, color){
+                const points = [start, end];
+                const material = new THREE.LineDashedMaterial({
+                    color: color,
+	                linewidth: 1,
+	                scale: scale,
+	                dashSize: 0.2,
+	                gapSize: 0.1,
+                });
+                const geometry = new THREE.BufferGeometry().setFromPoints(points);
+                super(geometry, material);
+                this.updateStart(start);
+                this.updateEnd(end);
+                this.computeLineDistances();
+            }
+            updateStart(startPoint){
+                this.geometry.attributes.position.array[0] = startPoint.x;
+                this.geometry.attributes.position.array[1] = startPoint.y;
+                this.geometry.attributes.position.array[2] = startPoint.z;
+                this.geometry.attributes.position.needsUpdate = true;
+                this.computeLineDistances();
+
+            }
+            updateEnd(endpoint){
+                this.geometry.attributes.position.array[3] = endpoint.x;
+                this.geometry.attributes.position.array[4] = endpoint.y;
+                this.geometry.attributes.position.array[5] = endpoint.z;
+                this.geometry.attributes.position.needsUpdate = true;
+                this.computeLineDistances();
+            }
+            get start(){
+                return new THREE.Vector3(
+                    this.geometry.attributes.position.array[0],
+                    this.geometry.attributes.position.array[1],
+                    this.geometry.attributes.position.array[2]
+                );
+            }
+            get end(){
+                return new THREE.Vector3(
+                    this.geometry.attributes.position.array[3],
+                    this.geometry.attributes.position.array[4],
+                    this.geometry.attributes.position.array[5]
+                );
+            }
+            get direction(){
+                const quat = new THREE.Quaternion();
+                const dirV = new THREE.Vector3(0, 1, 0);
+                this.getWorldQuaternion(quat);
+                dirV.applyQuaternion(quat);
+                return dirV;
+            }
+        }
+    </script>
+</body>
