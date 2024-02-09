@@ -63,6 +63,9 @@
             border-radius: 50%;
             border: 1px solid black;
         }
+        #data {
+            color: lightgray;
+        }
     </style>
 </head>
 <body>
@@ -83,10 +86,8 @@
             }
         }
     </script>
-    <!--<script src="https://unpkg.com/three@v0.157.0/examples/jsm/libs/ammo.wasm.js"></script>-->
-    <script src="./ammo.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/cannon.js/0.6.2/cannon.js"></script>
     <script type="module">
-        // Based on https://github.com/mrdoob/three.js/blob/master/examples/physics_ammo_rope.html
         import * as THREE from 'three';
         import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
         import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
@@ -95,7 +96,7 @@
         let canvas, renderer, camera, scene, controls;
         let canvasHalfWidth;
         let canvasHalfHeight;
-        let collisionConfiguration, dispatcher, broadphase, solver, softBodySolver, physicsWorld, transformAux1;
+        let world; // cannon.js
         const params = {
             R: 2, R_rx: 0, R_ry: 0, R_rz: 0,
             F: 2, F_rx: 0, F_ry: 0, F_rz: 0,
@@ -109,15 +110,14 @@
         let gravityConstant = 0;
         const clock = new THREE.Clock();
 
-        Ammo().then(function(AmmoLib){
-            Ammo = AmmoLib;
+        function init(){
             initGraphics();
             onWindowResize();
             initPhysics();
             createObjects();
             //initInput();
             animate();
-        });
+        }
 
         function initGraphics(){
             canvas = document.querySelector('#c');
@@ -165,10 +165,6 @@
 
             const gui = new GUI();
             paramsFolder = gui.addFolder('Params');
-            paramsFolder.add(params, 'R', -4, 4, 0.1).name('|R|').listen();
-            paramsFolder.add(params, 'R_rx', 0, Math.PI, Math.PI/16).listen();
-            paramsFolder.add(params, 'R_ry', 0, Math.PI, Math.PI/16).listen();
-            paramsFolder.add(params, 'R_rz', 0, Math.PI, Math.PI/16).listen();
             paramsFolder.add(params, 'rF', -4, 4, 0.1).name('|rF|').listen();
             paramsFolder.add(params, 'rF_rx', 0, Math.PI, Math.PI/16).listen();
             paramsFolder.add(params, 'rF_ry', 0, Math.PI, Math.PI/16).listen();
@@ -177,31 +173,21 @@
             paramsFolder.add(params, 'F_rx', 0, Math.PI, Math.PI/16).listen();
             paramsFolder.add(params, 'F_ry', 0, Math.PI, Math.PI/16).listen();
             paramsFolder.add(params, 'F_rz', 0, Math.PI, Math.PI/16).listen();
-            paramsFolder.add(params, 'Rod_quat_x', 0, 4, 0.2).listen();
-            paramsFolder.add(params, 'Rod_quat_y', 0, 4, 0.2).listen();
-            paramsFolder.add(params, 'Rod_quat_z', 0, 4, 0.2).listen();
-            paramsFolder.add(params, 'Rod_quat_w', 0, 4, 0.2).listen();
-            paramsFolder.add(params, 'F', 0, 1, 0.1).listen();
-            paramsFolder.add({ setTr:updateRod }, 'setTr').name('Set Position');
             paramsFolder.add({ applyT:applyTorque }, 'applyT').name('Apply Torque');
             paramsFolder.open();
             window.addEventListener('resize', onWindowResize);
         }
 
         function initPhysics(){
-            collisionConfiguration = new Ammo.btSoftBodyRigidBodyCollisionConfiguration();  // collision detection and response configuration
-            dispatcher = new Ammo.btCollisionDispatcher(collisionConfiguration);  // dispatches collision events to the appropriate collision objects
-            broadphase = new Ammo.btDbvtBroadphase();  // init: broad-phase collision detection algorithm using a dynamic bounding volume tree
-            solver = new Ammo.btSequentialImpulseConstraintSolver();  // Solver for constraints and forces
-            softBodySolver = new Ammo.btDefaultSoftBodySolver();
-            physicsWorld = new Ammo.btSoftRigidDynamicsWorld(dispatcher, broadphase, solver, collisionConfiguration, softBodySolver);
-            physicsWorld.setGravity(new Ammo.btVector3(0, gravityConstant, 0));
-            physicsWorld.getWorldInfo().set_m_gravity(new Ammo.btVector3(0, gravityConstant, 0));
-            transformAux1 = new Ammo.btTransform();  // auxiliary transformation object (e.g. translations and rotations)
+            world = new CANNON.World();
+            world.gravity.set(0, 0, 0); // Gravity in the negative Y direction
+            world.broadphase = new CANNON.NaiveBroadphase();
+            world.solver.iterations = 10;
         }
 
         let rod, point_R;
-        let arrow_R, arrow_V, arrow_W, arrow_rF, arrow_F;
+        let rodBody, rodMesh;
+        let arrow_R, arrow_V, arrow_W, arrow_rF, arrow_F, arrow_L;
         function createObjects(){
             const pos = new THREE.Vector3();
             const quat = new THREE.Quaternion();
@@ -210,8 +196,8 @@
             pos.set(0, -0.5, 0);  // position
             quat.set(0, 0, 0, 1); // rotation
             const groundM = new THREE.MeshPhongMaterial({ color: 0x555555 });
-            const ground = createParalellepiped(40, 1, 40, 0, pos, quat, groundM);
-            ground.receiveShadow = true;
+            const groundMesh = new THREE.Mesh(new THREE.BoxGeometry(40, 1, 40, 1, 1, 1), groundM);
+            groundMesh.receiveShadow = true;
             const gridHelper = new THREE.GridHelper(20);
             scene.add(gridHelper);
 
@@ -224,102 +210,85 @@
             scene.add(arrowX, arrowY, arrowZ);
             camera.lookAt(0, 2, 0);
             
-            // Rod. arrow_R is just the position of the Rod.
-            // (This is not a Relative Motion example)
-            const rodHeight = 2;
-            const rodSide = 0.2;
-            const rodMass = 1;
-            pos.set(0, 0, 0);
-            quat.set(0, 0, 0, 1);
-            arrow_R = new Arrow(dirY, new THREE.Vector3(), 1, 0x0);
-            point_R = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.1, 0.1, 1, 1, 1), new THREE.MeshPhongMaterial({ transparent: true, opacity: 0 }));
-            point_R.parent = arrow_R;
-            point_R.userData.basePoint = new THREE.Vector3(0, 0, 0);
-            arrow_R.children.push(point_R);
-            arrow_R.updateChildren();
-            rod = createParalellepiped(rodSide, rodHeight, rodSide, rodMass, pos, quat, new THREE.MeshPhongMaterial({ color: 0xf02050 }));
-            rod.castShadow = true;
-            rod.receiveShadow = true;
-            rod.userData.physicsBody.setFriction(0.8);
-            scene.add(arrow_R, rod);
+            //const rodHeight = 2;
+            //const rodSide = 0.2;
+            //const rodMass = 1;
+            //rod = createParalellepiped(rodSide, rodHeight, rodSide, rodMass, pos, quat, new THREE.MeshPhongMaterial({ color: 0xf02050 }));
+            //rod.castShadow = true;
+            //rod.receiveShadow = true;
+            //rod.userData.physicsBody.setFriction(0.8);
+            //scene.add(arrow_R, rod);
+            //updateRod();
 
+            // Create a rod in Three.js
+            pos.set(0, 0, 0);
+            quat.setFromEuler(new THREE.Euler(0.6, 0, 0, 'XYZ'));
+            const rodGeometry = new THREE.CylinderGeometry(1, 1, 5, 32);
+            const rodMaterial = new THREE.MeshPhongMaterial({ color: 0x00ff00 });
+            rodMesh = new THREE.Mesh(rodGeometry, rodMaterial);
+            rodMesh.receiveShadow = true;
+            rodMesh.position.copy(pos);
+            rodMesh.quaternion.copy(quat);
+            // Create a corresponding rigid body in Cannon.js
+            const rodShape = new CANNON.Cylinder(1, 1, 5, 32);
+            rodBody = new CANNON.Body({ mass: 1 });
+            rodBody.addShape(rodShape);
+            rodBody.position.copy(pos);
+            rodBody.quaternion.copy(quat);
+            world.addBody(rodBody);
+
+            // angular Velocity
             pos.set(0, 1, 0);
             arrow_W = new Arrow(dirY, pos, 0x0000ff);
             scene.add(arrow_W);
 
-            updateRod();
-
-            pos.set(0, 1, 0);
-            arrow_rF = new Arrow(dirY, pos, 1, 0x00f0e0);
-            arrow_F = new Arrow(dirY, pos, 1, 0xf0e000);
-            // --->rF--->F
+            // Rod--->rF--->F, arm and Force for Torque
+            // Rod--->L, non-principal axis
+            quat.setFromEuler(new THREE.Euler(-Math.PI/2, 0, 0, 'XYZ'));
+            arrow_rF = new Arrow(dirY, new THREE.Vector3(), 1, 0x00f0e0);
+            arrow_F = new Arrow(dirY, new THREE.Vector3(), 1, 0xf0e000);
+            arrow_L = new Arrow(dirY, new THREE.Vector3(), 4, 0xd020f0);
+            arrow_L.quaternion.copy(quat);
             arrow_F.parent = arrow_rF;
             arrow_F.userData.basePoint = new THREE.Vector3(0, 0, 0);
             arrow_rF.children.push(arrow_F);
-            scene.add(arrow_rF);
-        }
+            arrow_rF.parent = rodMesh;
+            arrow_L.parent = rodMesh;
+            rodMesh.children.push(arrow_rF);
+            rodMesh.children.push(arrow_L);
+            scene.add(rodMesh);
 
-        function updateRod(){
-            const worldPos = new THREE.Vector3();
-            const btTransform = new Ammo.btTransform();
-            point_R.getWorldPosition(worldPos);
-            btTransform.setIdentity();
-            btTransform.setOrigin(new Ammo.btVector3(worldPos.x, worldPos.y, worldPos.z));
-            btTransform.setRotation(new Ammo.btQuaternion(params.Rod_quat_x, params.Rod_quat_y, params.Rod_quat_z, params.Rod_quat_w));
-            rod.userData.physicsBody.setWorldTransform(btTransform);
-            arrow_R.updateChildren();
-            const motionState = new Ammo.btDefaultMotionState(btTransform);
-            rod.userData.physicsBody.setMotionState(motionState);
-            rod.userData.physicsBody.setLinearVelocity(new Ammo.btVector3());
-            rod.userData.physicsBody.setAngularVelocity(new Ammo.btVector3());
+            const torqueAxis = new CANNON.Vec3(1, 1, 0).normalize();
+            const torqueForce = 0;
+            //rodBody.torque.set(torqueAxis.x * torqueForce, torqueAxis.y * torqueForce, torqueAxis.z * torqueForce);
         }
 
         function applyTorque(){
-            const arrow_quat = new THREE.Quaternion();
-            const arrow_dir = new THREE.Vector3();
-            const rF = new THREE.Vector3();
-            const F = new THREE.Vector3();
-
-            arrow_rF.getWorldQuaternion(arrow_quat);
-            rF.set(0, 1, 0);
-            rF.applyQuaternion(arrow_quat);
-            arrow_F.getWorldQuaternion(arrow_quat);
-            F.set(0, 1, 0);
-            F.applyQuaternion(arrow_quat);
-            let btVect = rod.userData.physicsBody.getAngularVelocity();
-            rod.applyForce(F, rF);  // FIXME: Not working. Ammo.js documentation is sad.
-        }
-
-        function createParalellepiped(sx, sy, sz, mass, pos, quat, material){
-            const threeObject = new THREE.Mesh(new THREE.BoxGeometry(sx, sy, sz, 1, 1, 1), material);
-            const shape = new Ammo.btBoxShape(new Ammo.btVector3(sx * 0.5, sy * 0.5, sz * 0.5));
-            shape.setMargin(margin);
-            createRigidBody(threeObject, shape, mass, pos, quat);
-            return threeObject;
-        }
-
-        function createRigidBody(threeObject, physicsShape, mass, pos, quat){
-            threeObject.position.copy(pos);     // initial position and
-            threeObject.quaternion.copy(quat);  // rotation (orientation)
-            const transform = new Ammo.btTransform();
-            transform.setIdentity();
-            transform.setOrigin(new Ammo.btVector3(pos.x, pos.y, pos.z));
-            transform.setRotation(new Ammo.btQuaternion(quat.x, quat.y, quat.z, quat.w));
-            const motionState = new Ammo.btDefaultMotionState(transform);
-            const localInertia = new Ammo.btVector3(0, 0, 0);
-            // LocalInertia refers to the moment of inertia of an object with respect to 
-            // its local coordinate system or its center of mass.
-            physicsShape.calculateLocalInertia(mass, localInertia);
-            const rbInfo = new Ammo.btRigidBodyConstructionInfo(mass, motionState, physicsShape, localInertia);
-            const body = new Ammo.btRigidBody(rbInfo);
-            threeObject.userData.physicsBody = body;
-            scene.add(threeObject);
-            if(mass > 0){
-                rigidBodies.push(threeObject);
-                // Disable deactivation
-                body.setActivationState(4);
-            }
-            physicsWorld.addRigidBody(body);
+            //const arrow_quat = new THREE.Quaternion();
+            //const arrow_dir = new THREE.Vector3();
+            //const rF = new CANNON.Vec3(0, 1, 0);
+            //const F = new CANNON.Vec3(0, 1, 0);
+            //arrow_rF.getWorldQuaternion(arrow_quat);
+            //dataDiv.innerHTML = `rFquat: ${arrow_quat.x.toFixed(3)}, ${arrow_quat.y.toFixed(3)}, ${arrow_quat.z.toFixed(3)}, ${arrow_quat.w.toFixed(3)}<br/>`;
+            //let cQuat = new CANNON.Quaternion(arrow_quat.x, arrow_quat.y, arrow_quat.z, arrow_quat.w);
+            //cQuat.toEuler(rF);
+            //arrow_F.getWorldQuaternion(arrow_quat);
+            //cQuat = new CANNON.Quaternion(arrow_quat.x, arrow_quat.y, arrow_quat.z, arrow_quat.w);
+            //cQuat.toEuler(F);
+            //rodBody.applyLocalForce(F, rF);
+            //dataDiv.innerHTML += `rF: ${rF.x.toFixed(3)}, ${rF.y.toFixed(3)}, ${rF.z.toFixed(3)}<br/>`;
+            //dataDiv.innerHTML += `F: ${F.x.toFixed(3)}, ${F.y.toFixed(3)}, ${F.z.toFixed(3)}<br/>`;
+            const rF = new THREE.Vector3(0, 1, 0);
+            const F = new THREE.Vector3(0, 1, 0);
+            const rFQuat = new THREE.Quaternion().setFromEuler(new THREE.Euler(params.rF_rx, params.rF_ry, params.rF_rz, 'XYZ'));
+            rF.applyQuaternion(rFQuat).multiplyScalar(arrow_rF.length);
+            const FQuat = new THREE.Quaternion().setFromEuler(new THREE.Euler(params.F_rx, params.F_ry, params.F_rz, 'XYZ'));
+            F.applyQuaternion(FQuat).applyQuaternion(rFQuat).multiplyScalar(arrow_F.length);
+            const crF = new CANNON.Vec3(rF.x, rF.y, rF.z);
+            const cF = new CANNON.Vec3(F.x, F.y, F.z);
+            dataDiv.innerHTML = `crF: ${crF.x.toFixed(3)}, ${crF.y.toFixed(3)}, ${crF.z.toFixed(3)}<br/>`;
+            dataDiv.innerHTML += `cF: ${cF.x.toFixed(3)}, ${cF.y.toFixed(3)}, ${cF.z.toFixed(3)}<br/>`;
+            rodBody.applyLocalForce(cF, crF);
         }
 
         function animate(){
@@ -334,19 +303,14 @@
             renderer.render(scene, camera);
         }
 
-        const dataDiv = document.querySelector('#data');
-        
         //const label_V = document.body.appendChild(document.createElement("div")); label_V.classList.add('overlay');
+        const dataDiv = document.querySelector('#data');
         const overlayPos = new THREE.Vector3();
         const W = new THREE.Vector3();
         const arrow_dir = new THREE.Vector3();
         const arrow_quat = new THREE.Quaternion();
         function updatePhysics(deltaTime){
             let btVect;
-            arrow_R.rotation.x = params.R_rx;
-            arrow_R.rotation.y = params.R_ry;
-            arrow_R.rotation.z = params.R_rz;
-            arrow_R.setLength2(params.R);
             arrow_rF.rotation.x = params.rF_rx;
             arrow_rF.rotation.y = params.rF_ry;
             arrow_rF.rotation.z = params.rF_rz;
@@ -355,37 +319,21 @@
             arrow_F.rotation.y = params.F_ry;
             arrow_F.rotation.z = params.F_rz;
             arrow_F.setLength2(params.F);
+            /** @todo: \tau = r x F, arrow representation
+             *      it must be // to dL/dt */
 
             const worldPos = new THREE.Vector3();
-            point_R.getWorldPosition(worldPos);
-            arrow_W.position.set(worldPos.x, worldPos.y, worldPos.z);
-            btVect = rod.userData.physicsBody.getAngularVelocity();
-            //arrow_W.setDirection(btVect);
-            arrow_W.setDirection(new THREE.Vector3(btVect.x(), btVect.y(), btVect.z()));
-            arrow_W.setLength2(btVect.length());
+            btVect = rodBody.angularVelocity;
+            arrow_W.position.copy(rodBody.position)
+            arrow_W.setDirection(btVect);
+            arrow_W.setLength2(btVect.length()*10);
 
-            // Step world
-            physicsWorld.stepSimulation(deltaTime, 10);
-            // cf. applyTorque, applyCentralForce
-            //let tVect = rod.position.clone().normalize().multiplyScalar(-6);
+            // Update physics
+            world.step(1 / 60);
 
-            // Update all rigid bodies in (Three) scene
-            for(let i = 0, il = rigidBodies.length; i < il; i ++){
-                const objThree = rigidBodies[i];
-                const objPhys = objThree.userData.physicsBody;
-                // The motion state represents the position and orientation of the object in the physics simulation at a specific time step.
-                const ms = objPhys.getMotionState();
-                if(ms){
-                    // If a motion state is available, it proceeds to update the position and orientation of the three.js object
-                    // to match the current state of the physics simulation.
-                    ms.getWorldTransform(transformAux1);
-                    const p = transformAux1.getOrigin();
-                    const q = transformAux1.getRotation();
-                    objThree.position.set(p.x(), p.y(), p.z());
-                    objThree.quaternion.set(q.x(), q.y(), q.z(), q.w());
-                    // This ensures that the graphical representation of the object is synchronized with its physics simulation state.
-                }
-            }
+            // Update Three.js objects based on physics simulation
+            rodMesh.position.copy(rodBody.position);
+            rodMesh.quaternion.copy(rodBody.quaternion);
         }
 
         function onWindowResize() {
@@ -488,5 +436,7 @@
                 return dirV;
             }
         }
+
+        init();
     </script>
 </body>
