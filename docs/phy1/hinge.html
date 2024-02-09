@@ -63,6 +63,9 @@
             border-radius: 50%;
             border: 1px solid black;
         }
+        #data {
+            color: lightgray;
+        }
     </style>
 </head>
 <body>
@@ -92,9 +95,10 @@
         import { GUI } from 'dat.gui';
 
         let canvas, renderer, camera, scene, controls;
+        let transformAux1;  // auxiliary transformation object (e.g. translations and rotations)
         let canvasHalfWidth;
         let canvasHalfHeight;
-        let collisionConfiguration, dispatcher, broadphase, solver, softBodySolver, physicsWorld, transformAux1;
+        let physicsWorld;
         let rodMovement = 0;
         const params = { 
             R_ex: 0, R_ey: 0, R_ez: 0.5, R_wy: 0.3,
@@ -110,37 +114,6 @@
         const divD = document.querySelector('#divD');
         const divW = document.querySelector('#divW');
 
-        // GLB
-        // https://discourse.threejs.org/t/most-simple-way-to-wait-loading-in-gltf-loader/13896/4
-        const loader = new GLTFLoader();
-        function modelLoader(url){
-            return new Promise((resolve, reject) => {
-                loader.load(url, data => resolve(data), null, reject);
-            });
-        }
-        async function addModel(path){
-            const gltf = await modelLoader(path);
-            const model = gltf.scene;
-            gltf.scene.traverse((node) => {
-                if(node.isMesh){
-                    node.castShadow = true;
-                    node.receiveShadow = true;
-                }
-            });
-            return model;
-        }
-        //let bowl = await addModel('./bowl.glb');
-
-        Ammo().then(function(AmmoLib){
-            Ammo = AmmoLib;
-            initGraphics();
-            onWindowResize();
-            initPhysics();
-            createObjects();
-            initInput();
-            animate();
-        });
-
         function initGraphics(){
             canvas = document.querySelector('#c');
             canvasHalfWidth = canvas.width/2;  // for CSS overlay
@@ -154,10 +127,6 @@
             scene.fog = new THREE.FogExp2(0x303030, 0.025);
 
             // Light
-            // DirectionalLight camera -> Orthographic
-            // SpotLight camera -> Perspective
-            const ambientLight = new THREE.AmbientLight(0xbbbbbb, 0.1);
-            //scene.add(ambientLight);
             const directionalLight = new THREE.DirectionalLight(0xffffff, 2);
             directionalLight.position.set(8, 10, 5);
             directionalLight.castShadow = true;
@@ -171,14 +140,10 @@
             directionalLight.shadow.mapSize.x = 1024;
             directionalLight.shadow.mapSize.y = 1024;
             scene.add(directionalLight);
-            const directionalLightHelper = new THREE.CameraHelper(directionalLight.shadow.camera);
-            //scene.add(directionalLightHelper);
 
             // Orbit Controls
             controls = new OrbitControls(camera, renderer.domElement);
             controls.listenToKeyEvents(window);
-            //controls.enableDamping = true; // an animation loop is required when either damping or auto-rotation are enabled
-            //controls.dampingFactor = 0.05;
             controls.screenSpacePanning = true;
             controls.minDistance = 1;
             controls.maxDistance = 30;
@@ -198,11 +163,11 @@
         }
 
         function initPhysics(){
-            collisionConfiguration = new Ammo.btSoftBodyRigidBodyCollisionConfiguration();  // collision detection and response configuration
-            dispatcher = new Ammo.btCollisionDispatcher(collisionConfiguration);  // dispatches collision events to the appropriate collision objects
-            broadphase = new Ammo.btDbvtBroadphase();  // init: broad-phase collision detection algorithm using a dynamic bounding volume tree
-            solver = new Ammo.btSequentialImpulseConstraintSolver();  // Solver for constraints and forces
-            softBodySolver = new Ammo.btDefaultSoftBodySolver();
+            const collisionConfiguration = new Ammo.btSoftBodyRigidBodyCollisionConfiguration();  // collision detection and response configuration
+            const dispatcher = new Ammo.btCollisionDispatcher(collisionConfiguration);  // dispatches collision events to the appropriate collision objects
+            const broadphase = new Ammo.btDbvtBroadphase();  // init: broad-phase collision detection algorithm using a dynamic bounding volume tree
+            const solver = new Ammo.btSequentialImpulseConstraintSolver();  // Solver for constraints and forces
+            const softBodySolver = new Ammo.btDefaultSoftBodySolver();
             physicsWorld = new Ammo.btSoftRigidDynamicsWorld(dispatcher, broadphase, solver, collisionConfiguration, softBodySolver);
             physicsWorld.setGravity(new Ammo.btVector3(0, gravityConstant, 0));
             physicsWorld.getWorldInfo().set_m_gravity(new Ammo.btVector3(0, gravityConstant, 0));
@@ -240,59 +205,11 @@
             buttonS.addEventListener('touchstart', function(event){ event.preventDefault(); removeConstraint(); });
             buttonW.addEventListener('touchstart', function(event){ event.preventDefault(); resetPosition(); });
         }
-
-        // https://stackoverflow.com/questions/72550511/ammojs-btbvhtrianglemeshshape-not-colliding?noredirect=1&lq=1
-        // https://sleekwp.dev/fun/io8/lib/sleek-entity.js
-        //=====================================================================
-        // - https://pybullet.org/Bullet/BulletFull/annotated.html
-        // - https://pybullet.org/Bullet/BulletFull/classbtTriangleIndexVertexArray.html
-        // btStridingMeshInterface inheritance:
-        //     btTriangleMesh --> btTriangleIndexVertexArray --> btStridingMeshInterface
-        //       +-> .AddTriangle()          +-> .addIndexedMesh()
-        //=====================================================================
-        // TODO: wireframe visualization of the Ammo.js triangle mesh shape in Three.js
-        //
-        function createHullFromModel(model){
-            // TODO: translate vertices based on position
-            // Ammo.btTriangleMesh().addTriangleIndices() --> is not a function => using .toNonIndexed()
-            const position = model.children[1].position;
-            const geometry = model.children[1].geometry.toNonIndexed();
-            const threeVertices = geometry.attributes.position.array;
-            //const threeIndices = geometry.index.array;
-            
-            // Ammo.btStridingMeshInterface() --> not a constructor
-            // Ammo.btTriangleIndexVertexArray() --> not a constructor
-            //   => using Ammo.btTriangleMesh();
-            const ammoMesh = new Ammo.btTriangleMesh();
-            //console.log('threeIndices: ', threeIndices);
-            console.log('threeVertices: ', threeVertices);
-            let indexA, indexB, indexC;
-            const vectA = new Ammo.btVector3();
-            const vectB = new Ammo.btVector3();
-            const vectC = new Ammo.btVector3();
-            for(let i=0; i < threeVertices.length; i+=9){
-                //indexA = threeIndices[i];
-                //indexB = threeIndices[i+1];
-                //indexC = threeIndices[i+2];
-                //vectA.setX(threeVertices[indexA]); vectA.setY(threeVertices[indexA+1]); vectA.setZ(threeVertices[indexA+2]);
-                vectA.setX(threeVertices[i]); vectA.setY(threeVertices[i+1]); vectA.setZ(threeVertices[i+2]);
-                vectB.setX(threeVertices[i+3]); vectB.setY(threeVertices[i+4]); vectB.setZ(threeVertices[i+5]);
-                vectC.setX(threeVertices[i+6]); vectC.setY(threeVertices[i+7]); vectC.setZ(threeVertices[i+8]);
-                ammoMesh.addTriangle(vectA, vectB, vectC, false);
-            }
-            // btBvhTriangleMeshShape() --> objects fall through
-            // btTriangleMeshShape(), btConcaveShape(), btCollisionShape() --> no constructors in IDL
-            var shape = new Ammo.btConvexTriangleMeshShape(ammoMesh, true);
-            shape.setMargin(0.05);
-            return shape;
-        }
     
         let column, rod, point_CM;
         let hinge;
-        let arrow_V;
-        let line_CD, line_DR, path, linePath;
-        let rodPos;
-        let rodAngle = 10;
+        let arrow_r, arrow_V, arrow_a, arrow_Fv;
+        let rodInitPos, pivotA, pivotB;
         function createObjects(){
             const pos = new THREE.Vector3();
             const quat = new THREE.Quaternion();
@@ -301,11 +218,6 @@
             pos.set(0, -0.5, 0);  // position
             quat.set(0, 0, 0, 1); // rotation
             const groundM = new THREE.MeshPhongMaterial({ color: 0x555555 });
-            //const groundT = new THREE.TextureLoader().load("./ground-texture-1.jpg");
-            //groundT.wrapS = THREE.RepeatWrapping;
-            //groundT.wrapT = THREE.RepeatWrapping;
-            //groundT.repeat.set(4, 4);
-            //groundM.map = groundT;
             const ground = createParalellepiped(40, 1, 40, 0, pos, quat, groundM);
             ground.receiveShadow = true;
             const gridHelper = new THREE.GridHelper(20);
@@ -320,7 +232,6 @@
             scene.add(arrowX, arrowY, arrowZ);
 
             // Column
-            //const bowlHullShape = createHullFromModel(bowl);
             const columnHeight = 3;
             const columnSide = 0.3;
             pos.set(0, columnHeight/2, 0);
@@ -334,28 +245,37 @@
             // Rod
             const rodHeight = 2;
             const rodSide = 0.2;
-            rodPos = new THREE.Vector3(columnSide, columnHeight+rodHeight/2-rodSide, 0)
-            pos.set(rodPos.x, rodPos.y, rodPos.z);
+            rodInitPos = new THREE.Vector3(columnSide, columnHeight+rodHeight/2-rodSide, 0)
+            pos.copy(rodInitPos);
             quat.set(0, 0, 0, 1);
             const rodMass = 1;
-            rod = createParalellepiped(rodSide, rodHeight, rodSide, rodMass, pos, quat, new THREE.MeshPhongMaterial({ color: 0xf02050 }));
+            rod = createParalellepiped(rodSide, rodHeight, rodSide, rodMass, pos, quat, new THREE.MeshPhongMaterial({ color: 0xf02050, transparent: true, opacity: 0.4 }));
             rod.castShadow = true;
             rod.receiveShadow = true;
             rod.userData.physicsBody.setFriction(0.8);
-            //rod.userData.physicsBody.setRollingFriction(0.3);
-            //rod.userData.physicsBody.setAnisotropicFriction(1);
             rod.userData.physicsBody.setDamping(0.2, 0.2);
             resetPosition();
-            const pivotA = new Ammo.btVector3(columnSide, columnHeight/2-0.1, 0); // Column, local coordinates
-            const pivotB = new Ammo.btVector3(0, -rodHeight/2+0.1, 0);  // Rod
+            pivotA = new Ammo.btVector3(columnSide, columnHeight/2-0.1, 0); // Column, local coordinates
+            pivotB = new Ammo.btVector3(0, -rodHeight/2+0.1, 0);  // Rod
             const axis = new Ammo.btVector3(1, 0, 0);
             hinge = new Ammo.btHingeConstraint(column.userData.physicsBody, rod.userData.physicsBody, pivotA, pivotB, axis, axis, true);
             physicsWorld.addConstraint(hinge, true);
 
             // Velocity vector
-            arrow_V = new Arrow(dirY, new THREE.Vector3(), 1, 0x0);
-            //arrow_V.updateChildren();
-            //scene.add(arrow_V);
+            arrow_V = new Arrow(dirY, new THREE.Vector3(), 1, 0x00ffee);
+            scene.add(arrow_V);
+
+            // Position vector of Rod's CM with respect to the pivot
+            arrow_r = new Arrow(dirY, new THREE.Vector3(), 1, 0x0fed0f);
+            scene.add(arrow_r);
+
+            // Acceleration vector
+            arrow_a = new Arrow(dirY, new THREE.Vector3(), 1, 0xff0d0f);
+            scene.add(arrow_a);
+
+            arrow_Fv = new Arrow(dirY, new THREE.Vector3(), 1, 0xa000a0);
+            arrow_Fv.position.set(rodInitPos.x, rodInitPos.y-0.9, rodInitPos.z);
+            scene.add(arrow_Fv);
 
             //pos.set(0, 1, 0);
             //line_CD = new Line(new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 5, 0), 5, 0x0);
@@ -374,16 +294,15 @@
         }
 
         function removeConstraint(){
-            console.log('S')
             physicsWorld.removeConstraint(hinge);
         }
 
         function resetPosition(){
             const quat = new THREE.Quaternion(0, 0, 0, 1);//.setFromAxisAngle(new THREE.Vector3(1, 0, 0), -0.2);
-            rod.position.set(rodPos.x, rodPos.y, rodPos.z);
+            rod.position.copy(rodInitPos);
             const btTransform = new Ammo.btTransform();
             btTransform.setIdentity();
-            btTransform.setOrigin(new Ammo.btVector3(rodPos.x, rodPos.y, rodPos.z));
+            btTransform.setOrigin(new Ammo.btVector3(rodInitPos.x, rodInitPos.y, rodInitPos.z));
             btTransform.setRotation(new Ammo.btQuaternion(quat.x, quat.y, quat.z, quat.w));
             rod.userData.physicsBody.setWorldTransform(btTransform);
             const motionState = new Ammo.btDefaultMotionState(btTransform);
@@ -393,6 +312,7 @@
             if(hinge){
                 physicsWorld.addConstraint(hinge, true);
             }
+            let tempVect = new THREE.Vector3();
         }
 
         function createParalellepiped(sx, sy, sz, mass, pos, quat, material){
@@ -427,30 +347,6 @@
             physicsWorld.addRigidBody(body);
         }
 
-        // Moment of Inertia
-        // https://en.wikipedia.org/wiki/Parallel_axis_theorem#Tensor_generalization
-        // J_{ij} = I_{ij} + m (|R|^{2} \delta_{ij} - R_i R_j)
-        // Where I_{ij} is the ij component of the Inertia Tensor, and \delta_{ij} is the Kronecker delta. 
-        // For diagonal elements (when i = j), displacements perpendicular to the axis of rotation
-        // results in the above simplified version of the parallel axis theorem.
-        // Thank you ChatGPT:
-        function calculateCustomMomentOfInertia(body, axisDirection){
-            // Get the inertia tensor from the btRigidBody object.
-            const inertiaTensor = new Ammo.btMatrix3x3();
-            body.getCollisionShape().calculateLocalInertia(body.getMass(), inertiaTensor);
-            // Transform the custom axis direction to the local coordinate system of the body.
-            const localAxisDirection = new Ammo.btVector3(axisDirection.x, axisDirection.y, axisDirection.z);
-            localAxisDirection.normalize(); // Ensure it's a unit vector.
-            // Use the parallel axis theorem to calculate the moment of inertia around the custom axis.
-            const dSquared = localAxisDirection.dot(localAxisDirection);
-            const I_custom = new Ammo.btVector3(
-                inertiaTensor.getElement(0) + body.getMass() * (dSquared - localAxisDirection.x() * localAxisDirection.x()),
-                inertiaTensor.getElement(4) + body.getMass() * (dSquared - localAxisDirection.y() * localAxisDirection.y()),
-                inertiaTensor.getElement(8) + body.getMass() * (dSquared - localAxisDirection.z() * localAxisDirection.z())
-            );
-            return I_custom;
-        }
-
         function animate(){
             requestAnimationFrame(animate);
             render();
@@ -474,41 +370,39 @@
             label.innerHTML = text;
         }
 
-        function tracePath(obj){
-            const quat = new THREE.Quaternion();
-            const normal = new THREE.Vector3();  // normal vector to the frame mesh
-            frame.getWorldQuaternion(quat);
-            normal.set(0, 1, 0);
-            normal.applyQuaternion(quat);
-            let proj = obj.position.clone();
-            proj.projectOnPlane(normal);
-            proj.applyQuaternion(quat.invert());
-            if(path.getLength() < 50000){
-                path.lineTo(proj.x, proj.z);
-                let points = path.getPoints();
-                linePath.geometry.setFromPoints(points.slice(-1000));
-                linePath.geometry.attributes.position.needsUpdate = true;
-            }
-            const btVel = ball.userData.physicsBody.getLinearVelocity();
-            const ballVel = new THREE.Vector3(btVel.x(), btVel.y(), btVel.z());
-            if(ballVel.length() > 3){
-                resetBallPosition();
-            }
-        }
-
         const dataDiv = document.querySelector('#data');
         let btVect;
         //const label_V = document.body.appendChild(document.createElement("div")); label_V.classList.add('overlay');
-        let overlayPos = new THREE.Vector3();
+        const overlayPos = new THREE.Vector3();
+        let rodV0, rodV1;
         function updatePhysics(deltaTime){
-            //hinge.enableAngularMotor(true, 1.5*rodMovement, 50);
             if(rodMovement != 0){
                 btVect = rod.userData.physicsBody.getAngularVelocity();
-                //console.log(btVect.x(), btVect.y(), btVect.z());
                 btVect.op_add(new Ammo.btVector3(rodMovement*0.8, 0, 0));
-                //rod.userData.physicsBody.setAngularVelocity(new Ammo.btVector3(rodMovement, 0, 0));
                 rod.userData.physicsBody.setAngularVelocity(btVect);
             }
+
+            const ammoRodV = rod.userData.physicsBody.getLinearVelocity();
+            rodV1 = new THREE.Vector3(ammoRodV.x(), ammoRodV.y(), ammoRodV.z());
+            arrow_V.setLength(rodV1.length()*0.2);
+            arrow_V.setDirection(rodV1.clone().normalize());
+            const rod_cm = new THREE.Vector3();
+            rod.getWorldPosition(rod_cm);
+            arrow_V.position.copy(rod_cm);
+            const r = rod_cm.clone().sub(new THREE.Vector3(rodInitPos.x, rodInitPos.y-0.9, rodInitPos.z));
+            arrow_r.position.set(rodInitPos.x, rodInitPos.y-0.9, rodInitPos.z);
+            arrow_r.setDirection(r.normalize());
+            if(rodV0 && rodV1.length() > 0.2){
+                const a = rodV1.clone().sub(rodV0);
+                arrow_a.position.copy(rod_cm);
+                arrow_a.setLength(a.length()*2);
+                arrow_a.setDirection(a.normalize());
+                const Fv = a.clone().sub(new THREE.Vector3(0, -9.8, 0));
+                arrow_Fv.setLength(Fv.length()*0.1);
+                arrow_Fv.setDirection(Fv.normalize());
+                dataDiv.innerHTML = `v0: ${rodV0.x.toFixed(3)}, ${rodV0.y.toFixed(3)}, ${rodV0.z.toFixed(3)}, L:${rodV0.length().toFixed(3)}<br/>`;
+            }
+            rodV0 = rodV1.clone();
 
             // Step world
             physicsWorld.stepSimulation(deltaTime, 10);
@@ -633,5 +527,15 @@
                 return dirV;
             }
         }
+
+        Ammo().then(function(AmmoLib){
+            Ammo = AmmoLib;
+            initGraphics();
+            onWindowResize();
+            initPhysics();
+            createObjects();
+            initInput();
+            animate();
+        });
     </script>
 </body>
