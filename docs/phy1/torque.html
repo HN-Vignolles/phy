@@ -83,7 +83,8 @@
             }
         }
     </script>
-    <script src="https://unpkg.com/three@v0.157.0/examples/jsm/libs/ammo.wasm.js"></script>
+    <!--<script src="https://unpkg.com/three@v0.157.0/examples/jsm/libs/ammo.wasm.js"></script>-->
+    <script src="./ammo.js"></script>
     <script type="module">
         // Based on https://github.com/mrdoob/three.js/blob/master/examples/physics_ammo_rope.html
         import * as THREE from 'three';
@@ -95,9 +96,10 @@
         let canvasHalfWidth;
         let canvasHalfHeight;
         let collisionConfiguration, dispatcher, broadphase, solver, softBodySolver, physicsWorld, transformAux1;
-        let rodMovement = 0;
         const params = {
             R: 2, R_rx: 0, R_ry: 0, R_rz: 0,
+            F: 2, F_rx: 0, F_ry: 0, F_rz: 0,
+            rF: 2, rF_rx: 0, rF_ry: 0, rF_rz: 0,
             Rod_quat_x: 1, Rod_quat_y: 0, Rod_quat_z: 0, Rod_quat_w: 1,
             F: 1,
         };
@@ -106,7 +108,6 @@
         const margin = 0.05;
         let gravityConstant = 0;
         const clock = new THREE.Clock();
-        let worldPos = new THREE.Vector3();
 
         Ammo().then(function(AmmoLib){
             Ammo = AmmoLib;
@@ -168,13 +169,22 @@
             paramsFolder.add(params, 'R_rx', 0, Math.PI, Math.PI/16).listen();
             paramsFolder.add(params, 'R_ry', 0, Math.PI, Math.PI/16).listen();
             paramsFolder.add(params, 'R_rz', 0, Math.PI, Math.PI/16).listen();
-            paramsFolder.add(params, 'Rod_quat_x', 0, Math.PI, Math.PI/16).listen();
-            paramsFolder.add(params, 'Rod_quat_y', 0, Math.PI, Math.PI/16).listen();
-            paramsFolder.add(params, 'Rod_quat_z', 0, Math.PI, Math.PI/16).listen();
-            paramsFolder.add(params, 'Rod_quat_w', 0, Math.PI, Math.PI/16).listen();
+            paramsFolder.add(params, 'rF', -4, 4, 0.1).name('|rF|').listen();
+            paramsFolder.add(params, 'rF_rx', 0, Math.PI, Math.PI/16).listen();
+            paramsFolder.add(params, 'rF_ry', 0, Math.PI, Math.PI/16).listen();
+            paramsFolder.add(params, 'rF_rz', 0, Math.PI, Math.PI/16).listen();
+            paramsFolder.add(params, 'F', -4, 4, 0.1).name('|F|').listen();
+            paramsFolder.add(params, 'F_rx', 0, Math.PI, Math.PI/16).listen();
+            paramsFolder.add(params, 'F_ry', 0, Math.PI, Math.PI/16).listen();
+            paramsFolder.add(params, 'F_rz', 0, Math.PI, Math.PI/16).listen();
+            paramsFolder.add(params, 'Rod_quat_x', 0, 4, 0.2).listen();
+            paramsFolder.add(params, 'Rod_quat_y', 0, 4, 0.2).listen();
+            paramsFolder.add(params, 'Rod_quat_z', 0, 4, 0.2).listen();
+            paramsFolder.add(params, 'Rod_quat_w', 0, 4, 0.2).listen();
             paramsFolder.add(params, 'F', 0, 1, 0.1).listen();
-            paramsFolder.add({ reset:resetPosition }, 'reset').name('Reset position');
-
+            paramsFolder.add({ setTr:updateRod }, 'setTr').name('Set Position');
+            paramsFolder.add({ applyT:applyTorque }, 'applyT').name('Apply Torque');
+            paramsFolder.open();
             window.addEventListener('resize', onWindowResize);
         }
 
@@ -191,8 +201,7 @@
         }
 
         let rod, point_R;
-        let arrow_R, arrow_V, arrow_W;
-        let rodPos;
+        let arrow_R, arrow_V, arrow_W, arrow_rF, arrow_F;
         function createObjects(){
             const pos = new THREE.Vector3();
             const quat = new THREE.Quaternion();
@@ -233,10 +242,25 @@
             rod.receiveShadow = true;
             rod.userData.physicsBody.setFriction(0.8);
             scene.add(arrow_R, rod);
-            resetPosition();
+
+            pos.set(0, 1, 0);
+            arrow_W = new Arrow(dirY, pos, 0x0000ff);
+            scene.add(arrow_W);
+
+            updateRod();
+
+            pos.set(0, 1, 0);
+            arrow_rF = new Arrow(dirY, pos, 1, 0x00f0e0);
+            arrow_F = new Arrow(dirY, pos, 1, 0xf0e000);
+            // --->rF--->F
+            arrow_F.parent = arrow_rF;
+            arrow_F.userData.basePoint = new THREE.Vector3(0, 0, 0);
+            arrow_rF.children.push(arrow_F);
+            scene.add(arrow_rF);
         }
 
-        function resetPosition(){
+        function updateRod(){
+            const worldPos = new THREE.Vector3();
             const btTransform = new Ammo.btTransform();
             point_R.getWorldPosition(worldPos);
             btTransform.setIdentity();
@@ -248,6 +272,22 @@
             rod.userData.physicsBody.setMotionState(motionState);
             rod.userData.physicsBody.setLinearVelocity(new Ammo.btVector3());
             rod.userData.physicsBody.setAngularVelocity(new Ammo.btVector3());
+        }
+
+        function applyTorque(){
+            const arrow_quat = new THREE.Quaternion();
+            const arrow_dir = new THREE.Vector3();
+            const rF = new THREE.Vector3();
+            const F = new THREE.Vector3();
+
+            arrow_rF.getWorldQuaternion(arrow_quat);
+            rF.set(0, 1, 0);
+            rF.applyQuaternion(arrow_quat);
+            arrow_F.getWorldQuaternion(arrow_quat);
+            F.set(0, 1, 0);
+            F.applyQuaternion(arrow_quat);
+            let btVect = rod.userData.physicsBody.getAngularVelocity();
+            rod.applyForce(F, rF);  // FIXME: Not working. Ammo.js documentation is sad.
         }
 
         function createParalellepiped(sx, sy, sz, mass, pos, quat, material){
@@ -295,19 +335,34 @@
         }
 
         const dataDiv = document.querySelector('#data');
-        let arrow_dir = new THREE.Vector3();
-        let arrow_quat = new THREE.Quaternion();
-        let btVect;
         
         //const label_V = document.body.appendChild(document.createElement("div")); label_V.classList.add('overlay');
-        let overlayPos = new THREE.Vector3();
+        const overlayPos = new THREE.Vector3();
+        const W = new THREE.Vector3();
+        const arrow_dir = new THREE.Vector3();
+        const arrow_quat = new THREE.Quaternion();
         function updatePhysics(deltaTime){
+            let btVect;
             arrow_R.rotation.x = params.R_rx;
-            //arrow_R.rotation.y += params.R_wy*deltaTime;
             arrow_R.rotation.y = params.R_ry;
             arrow_R.rotation.z = params.R_rz;
             arrow_R.setLength2(params.R);
-            resetPosition();
+            arrow_rF.rotation.x = params.rF_rx;
+            arrow_rF.rotation.y = params.rF_ry;
+            arrow_rF.rotation.z = params.rF_rz;
+            arrow_rF.setLength2(params.rF);
+            arrow_F.rotation.x = params.F_rx;
+            arrow_F.rotation.y = params.F_ry;
+            arrow_F.rotation.z = params.F_rz;
+            arrow_F.setLength2(params.F);
+
+            const worldPos = new THREE.Vector3();
+            point_R.getWorldPosition(worldPos);
+            arrow_W.position.set(worldPos.x, worldPos.y, worldPos.z);
+            btVect = rod.userData.physicsBody.getAngularVelocity();
+            //arrow_W.setDirection(btVect);
+            arrow_W.setDirection(new THREE.Vector3(btVect.x(), btVect.y(), btVect.z()));
+            arrow_W.setLength2(btVect.length());
 
             // Step world
             physicsWorld.stepSimulation(deltaTime, 10);
