@@ -98,11 +98,10 @@
         let canvasHalfHeight;
         let world; // cannon.js
         const params = {
-            R: 2, R_rx: 0, R_ry: 0, R_rz: 0,
+            R: 2, T: 0,
             F: 2, F_rx: 0, F_ry: 0, F_rz: 0,
             rF: 2, rF_rx: 0, rF_ry: 0, rF_rz: 0,
             Rod_quat_x: 1, Rod_quat_y: 0, Rod_quat_z: 0, Rod_quat_w: 1,
-            F: 1,
         };
         let paramsFolder;
         const rigidBodies = [];
@@ -165,14 +164,16 @@
 
             const gui = new GUI();
             paramsFolder = gui.addFolder('Params');
-            paramsFolder.add(params, 'rF', -4, 4, 0.1).name('|rF|').listen();
-            paramsFolder.add(params, 'rF_rx', 0, Math.PI, Math.PI/16).listen();
-            paramsFolder.add(params, 'rF_ry', 0, Math.PI, Math.PI/16).listen();
-            paramsFolder.add(params, 'rF_rz', 0, Math.PI, Math.PI/16).listen();
-            paramsFolder.add(params, 'F', -4, 4, 0.1).name('|F|').listen();
-            paramsFolder.add(params, 'F_rx', 0, Math.PI, Math.PI/16).listen();
-            paramsFolder.add(params, 'F_ry', 0, Math.PI, Math.PI/16).listen();
-            paramsFolder.add(params, 'F_rz', 0, Math.PI, Math.PI/16).listen();
+            paramsFolder.add(params, 'R').listen();
+            paramsFolder.add(params, 'T').listen();
+            paramsFolder.add(params, 'rF', -4, 4, 0.1).name('rF').listen();
+            paramsFolder.add(params, 'rF_rx', -90, 90, 5).listen();
+            paramsFolder.add(params, 'rF_ry', -90, 90, 5).listen();
+            paramsFolder.add(params, 'rF_rz', -90, 90, 5).listen();
+            paramsFolder.add(params, 'F', -10, 10, 0.5).name('F').listen();
+            paramsFolder.add(params, 'F_rx', -90, 90, 5).listen();
+            paramsFolder.add(params, 'F_ry', -90, 90, 5).listen();
+            paramsFolder.add(params, 'F_rz', -90, 90, 5).listen();
             paramsFolder.add({ applyT:applyTorque }, 'applyT').name('Apply Torque');
             paramsFolder.open();
             window.addEventListener('resize', onWindowResize);
@@ -188,6 +189,7 @@
         let rod, point_R;
         let rodBody, rodMesh;
         let arrow_R, arrow_V, arrow_W, arrow_rF, arrow_F, arrow_L;
+        let cF, crF;
         function createObjects(){
             const pos = new THREE.Vector3();
             const quat = new THREE.Quaternion();
@@ -209,22 +211,12 @@
             const arrowZ = new THREE.ArrowHelper(new THREE.Vector3(0, 0, 1), worldOrigin, 0.5, 0x0000ff);
             scene.add(arrowX, arrowY, arrowZ);
             camera.lookAt(0, 2, 0);
-            
-            //const rodHeight = 2;
-            //const rodSide = 0.2;
-            //const rodMass = 1;
-            //rod = createParalellepiped(rodSide, rodHeight, rodSide, rodMass, pos, quat, new THREE.MeshPhongMaterial({ color: 0xf02050 }));
-            //rod.castShadow = true;
-            //rod.receiveShadow = true;
-            //rod.userData.physicsBody.setFriction(0.8);
-            //scene.add(arrow_R, rod);
-            //updateRod();
 
             // Create a rod in Three.js
             pos.set(0, 0, 0);
-            quat.setFromEuler(new THREE.Euler(0.6, 0, 0, 'XYZ'));
+            quat.setFromEuler(new THREE.Euler(THREE.MathUtils.degToRad(30), 0, 0, 'XYZ'));
             const rodGeometry = new THREE.CylinderGeometry(1, 1, 5, 32);
-            const rodMaterial = new THREE.MeshPhongMaterial({ color: 0x00ff00 });
+            const rodMaterial = new THREE.MeshPhongMaterial({ color: 0x00ff00, transparent: true, opacity: 0.8 });
             rodMesh = new THREE.Mesh(rodGeometry, rodMaterial);
             rodMesh.receiveShadow = true;
             rodMesh.position.copy(pos);
@@ -237,10 +229,10 @@
             rodBody.quaternion.copy(quat);
             world.addBody(rodBody);
 
-            // angular Velocity
-            pos.set(0, 1, 0);
-            arrow_W = new Arrow(dirY, pos, 0x0000ff);
-            scene.add(arrow_W);
+            // angular and linear velocity
+            arrow_W = new Arrow(dirY, pos, 1, 0xff0000);
+            arrow_V = new Arrow(dirY, pos, 1, 0x0000ff);
+            scene.add(arrow_W, arrow_V);
 
             // Rod--->rF--->F, arm and Force for Torque
             // Rod--->L, non-principal axis
@@ -261,33 +253,26 @@
             const torqueAxis = new CANNON.Vec3(1, 1, 0).normalize();
             const torqueForce = 0;
             //rodBody.torque.set(torqueAxis.x * torqueForce, torqueAxis.y * torqueForce, torqueAxis.z * torqueForce);
+            crF = new CANNON.Vec3();
+            cF = new CANNON.Vec3();
         }
 
+        
         function applyTorque(){
-            //const arrow_quat = new THREE.Quaternion();
-            //const arrow_dir = new THREE.Vector3();
-            //const rF = new CANNON.Vec3(0, 1, 0);
-            //const F = new CANNON.Vec3(0, 1, 0);
-            //arrow_rF.getWorldQuaternion(arrow_quat);
-            //dataDiv.innerHTML = `rFquat: ${arrow_quat.x.toFixed(3)}, ${arrow_quat.y.toFixed(3)}, ${arrow_quat.z.toFixed(3)}, ${arrow_quat.w.toFixed(3)}<br/>`;
-            //let cQuat = new CANNON.Quaternion(arrow_quat.x, arrow_quat.y, arrow_quat.z, arrow_quat.w);
-            //cQuat.toEuler(rF);
-            //arrow_F.getWorldQuaternion(arrow_quat);
-            //cQuat = new CANNON.Quaternion(arrow_quat.x, arrow_quat.y, arrow_quat.z, arrow_quat.w);
-            //cQuat.toEuler(F);
-            //rodBody.applyLocalForce(F, rF);
-            //dataDiv.innerHTML += `rF: ${rF.x.toFixed(3)}, ${rF.y.toFixed(3)}, ${rF.z.toFixed(3)}<br/>`;
-            //dataDiv.innerHTML += `F: ${F.x.toFixed(3)}, ${F.y.toFixed(3)}, ${F.z.toFixed(3)}<br/>`;
+            const rF_rx = THREE.MathUtils.degToRad(params.rF_rx);
+            const rF_ry = THREE.MathUtils.degToRad(params.rF_ry);
+            const rF_rz = THREE.MathUtils.degToRad(params.rF_rz);
+            const F_rx = THREE.MathUtils.degToRad(params.F_rx);
+            const F_ry = THREE.MathUtils.degToRad(params.F_ry);
+            const F_rz = THREE.MathUtils.degToRad(params.F_rz);
             const rF = new THREE.Vector3(0, 1, 0);
             const F = new THREE.Vector3(0, 1, 0);
-            const rFQuat = new THREE.Quaternion().setFromEuler(new THREE.Euler(params.rF_rx, params.rF_ry, params.rF_rz, 'XYZ'));
+            const rFQuat = new THREE.Quaternion().setFromEuler(new THREE.Euler(rF_rx, rF_ry, rF_rz, 'XYZ'));
             rF.applyQuaternion(rFQuat).multiplyScalar(arrow_rF.length);
-            const FQuat = new THREE.Quaternion().setFromEuler(new THREE.Euler(params.F_rx, params.F_ry, params.F_rz, 'XYZ'));
+            const FQuat = new THREE.Quaternion().setFromEuler(new THREE.Euler(F_rx, F_ry, F_rz, 'XYZ'));
             F.applyQuaternion(FQuat).applyQuaternion(rFQuat).multiplyScalar(arrow_F.length);
-            const crF = new CANNON.Vec3(rF.x, rF.y, rF.z);
-            const cF = new CANNON.Vec3(F.x, F.y, F.z);
-            dataDiv.innerHTML = `crF: ${crF.x.toFixed(3)}, ${crF.y.toFixed(3)}, ${crF.z.toFixed(3)}<br/>`;
-            dataDiv.innerHTML += `cF: ${cF.x.toFixed(3)}, ${cF.y.toFixed(3)}, ${cF.z.toFixed(3)}<br/>`;
+            crF.set(rF.x, rF.y, rF.z);
+            cF.set(F.x, F.y, F.z);
             rodBody.applyLocalForce(cF, crF);
         }
 
@@ -305,35 +290,41 @@
 
         //const label_V = document.body.appendChild(document.createElement("div")); label_V.classList.add('overlay');
         const dataDiv = document.querySelector('#data');
-        const overlayPos = new THREE.Vector3();
-        const W = new THREE.Vector3();
-        const arrow_dir = new THREE.Vector3();
-        const arrow_quat = new THREE.Quaternion();
+        let R0;
+        const R1 = new THREE.Vector3();
         function updatePhysics(deltaTime){
-            let btVect;
-            arrow_rF.rotation.x = params.rF_rx;
-            arrow_rF.rotation.y = params.rF_ry;
-            arrow_rF.rotation.z = params.rF_rz;
+            let W, V;
+            arrow_rF.rotation.x = THREE.MathUtils.degToRad(params.rF_rx);
+            arrow_rF.rotation.y = THREE.MathUtils.degToRad(params.rF_ry);
+            arrow_rF.rotation.z = THREE.MathUtils.degToRad(params.rF_rz);
             arrow_rF.setLength2(params.rF);
-            arrow_F.rotation.x = params.F_rx;
-            arrow_F.rotation.y = params.F_ry;
-            arrow_F.rotation.z = params.F_rz;
+            arrow_F.rotation.x = THREE.MathUtils.degToRad(params.F_rx);
+            arrow_F.rotation.y = THREE.MathUtils.degToRad(params.F_ry);
+            arrow_F.rotation.z = THREE.MathUtils.degToRad(params.F_rz);
             arrow_F.setLength2(params.F);
             /** @todo: \tau = r x F, arrow representation
              *      it must be // to dL/dt */
 
-            const worldPos = new THREE.Vector3();
-            btVect = rodBody.angularVelocity;
-            arrow_W.position.copy(rodBody.position)
-            arrow_W.setDirection(btVect);
-            arrow_W.setLength2(btVect.length()*10);
-
             // Update physics
             world.step(1 / 60);
+
+            W = rodBody.angularVelocity;
+            V = rodBody.velocity;
+            arrow_W.position.copy(rodBody.position);
+            arrow_W.setDirection(W.clone().unit());
+            arrow_W.setLength2(W.length()*2);
+            arrow_V.position.copy(rodBody.position);
+            arrow_V.setDirection(V.clone().unit());
+            arrow_V.setLength2(V.length()*4);
 
             // Update Three.js objects based on physics simulation
             rodMesh.position.copy(rodBody.position);
             rodMesh.quaternion.copy(rodBody.quaternion);
+
+            dataDiv.innerHTML = `crF: ${crF.x.toFixed(3)}, ${crF.y.toFixed(3)}, ${crF.z.toFixed(3)}<br/>`;
+            dataDiv.innerHTML += `cF: ${cF.x.toFixed(3)}, ${cF.y.toFixed(3)}, ${cF.z.toFixed(3)}<br/>`;
+            dataDiv.innerHTML += `&omega;: ${W.x.toFixed(3)}, ${W.y.toFixed(3)}, ${W.z.toFixed(3)}; |&omega;| = ${W.length().toFixed(3)}<br/>`;
+            dataDiv.innerHTML += `v: ${V.x.toFixed(3)}, ${V.y.toFixed(3)}, ${V.z.toFixed(3)}; |v| = ${V.length().toFixed(3)}<br/>`;
         }
 
         function onWindowResize() {
