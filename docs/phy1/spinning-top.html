@@ -78,8 +78,9 @@
         let canvasHalfHeight;
         let transformAux1;
         const params = { 
-            R: 1, R_ex: 0.2, R_ey: 0, R_ez: Math.PI/4, R_wy: 0.3,
-            text_overlay: false, trace: true,
+            R: 1, R_ex: 0, R_ey: 0, R_ez: 0.4,
+            wx: 0, wy: 7.0, wz: 0,
+            text_overlay: true, trace: true,
             pixel_ratio: 1,
         };
         let paramsFolder;
@@ -166,13 +167,17 @@
 
             const gui = new GUI();
             paramsFolder = gui.addFolder('Params');
+            paramsFolder.add(params, 'wx', 0, Math.PI, Math.PI/16).listen();
+            paramsFolder.add(params, 'wy', 0, Math.PI, Math.PI/16).listen();
+            paramsFolder.add(params, 'wz', 0, Math.PI, Math.PI/16).listen();
             paramsFolder.add(params, 'R', -4, 4, 0.1).name('|R|').listen();
             paramsFolder.add(params, 'R_ex', 0, Math.PI, Math.PI/16).listen();
+            paramsFolder.add(params, 'R_ey', 0, Math.PI, Math.PI/16).listen();
             paramsFolder.add(params, 'R_ez', 0, Math.PI, Math.PI/16).listen();
-            paramsFolder.add(params, 'R_wy', -5, 5, 0.1).name('R_ωy').listen();
             paramsFolder.add(params, 'text_overlay').name('Text Overlay').listen();
             paramsFolder.add(params, 'trace').onChange(setTrace);
             paramsFolder.add(params, 'pixel_ratio', pixel_ratios).name('Pixel Ratio').onChange(setPixelRatio);
+            paramsFolder.add({ reset:resetSpherePosition }, 'reset').name('Reset sphere position');
             window.addEventListener('resize', onWindowResize);
         }
 
@@ -184,9 +189,9 @@
         }
     
         let sphere, ground, point_R, point_Top;
-        let arrow_R, arrow_Top, arrow_W, arrow_WxR, arrow_WxWxR, arrow_G, arrow_Vball;
+        let arrow_R, arrow_Top, arrow_W, arrow_Lworld, arrow_WxWxR, arrow_G, arrow_Vball;
         let line_CD, line_DR, path, linePath;
-        let L, I;
+        let w, L, I, dirY;
         function createObjects(){
             const pos = new THREE.Vector3();
             const quat = new THREE.Quaternion();
@@ -201,7 +206,7 @@
 
             // Origin
             const worldOrigin = new THREE.Vector3();
-            const dirY = new THREE.Vector3(0, 1, 0);
+            dirY = new THREE.Vector3(0, 1, 0);
             const arrowX = new THREE.ArrowHelper(new THREE.Vector3(1, 0, 0), worldOrigin, 0.5, 0xff0000);
             const arrowY = new THREE.ArrowHelper(new THREE.Vector3(0, 1, 0), worldOrigin, 0.5, 0x00ff00);
             const arrowZ = new THREE.ArrowHelper(new THREE.Vector3(0, 0, 1), worldOrigin, 0.5, 0x0000ff);
@@ -218,7 +223,6 @@
             // arrow_sTop's tail/origin = (arrow_R's head/endpoint + basePoint)
             // updated using arrow_R.updateChildren()
             // --->R--->Top
-            arrow_Top.userData.basePoint = new THREE.Vector3(0, 0, 0);
             arrow_R.children.push(arrow_Top);
 
             // Sphere
@@ -227,10 +231,9 @@
             sphere.parent = arrow_R;
             sphere.userData.basePoint = new THREE.Vector3(0, 0, 0);
             arrow_R.children.push(sphere);
-            L = new THREE.Vector3(0, 1, 0);
             I = new THREE.Matrix3(1,0,0,0,1,0,0,0,0.5);
-            console.log('I', I, 'Iinv', I.invert());
-            L.applyEuler(new THREE.Euler(params.R_ex, 0, 0, 'XYZ'));
+            w = new THREE.Vector3(params.wx, params.wy, params.wz);
+            L = w.clone().applyMatrix3(I);
             
             // Box whose center represents the point R
             point_R = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.1, 0.1, 1, 1, 1), new THREE.MeshPhongMaterial({ transparent: true, opacity: 0 }));
@@ -246,7 +249,6 @@
             
             // G vector
             arrow_G = new Arrow(dirY, new THREE.Vector3(), 1, 0x0);
-            arrow_G.userData.basePoint = new THREE.Vector3(0, 0, 0);
             scene.add(arrow_G);
             arrow_G.rotation.x = Math.PI;
 
@@ -257,10 +259,11 @@
             arrow_W = new Arrow(dirY, new THREE.Vector3(), 1, 0x0000ff);
             arrow_W.parent = point_Top;
             point_Top.children.push(arrow_W);
-            arrow_WxR = new Arrow(dirY, new THREE.Vector3(), 1, 0x0);
+            arrow_Lworld = new Arrow(dirY, new THREE.Vector3(), 1, 0x0);
+            arrow_Lworld.position.set(0,0,2);
             arrow_WxWxR = new Arrow(dirY, new THREE.Vector3(), 1, 0xff0000);
             arrow_Vball = new Arrow(dirY, new THREE.Vector3(), 1, 0x0);
-            scene.add(arrow_WxR, arrow_WxWxR, arrow_Vball);
+            scene.add(arrow_Lworld, arrow_WxWxR, arrow_Vball);
             line_CD = new Line(new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 5, 0), 5, 0x0);
             line_DR = new Line(new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 5, 0), 5, 0x0);
             scene.add(line_CD, line_DR);
@@ -273,6 +276,15 @@
             path = new THREE.Path();
             path.lineTo(0, 0, 0);
             linePath.rotation.set(Math.PI/2, 0, 0);
+        }
+
+        let alpha = 0.3, beta = 0, gamma = 0;
+        function resetSpherePosition(){
+            //arrow_R.setDirection(dirY);
+            //L.set(0, 1, 0);
+            //L.applyEuler(new THREE.Euler(params.R_ex, params.R_ey, params.R_ez, 'XYZ'));
+            w.set(0, 7.0, 0);
+            arrow_R.quaternion.setFromEuler(new THREE.Euler(params.R_ex, params.R_ey, params.R_ez, 'XYZ'));
         }
 
         function animate(){
@@ -302,6 +314,7 @@
                 }
                 this.rotation._onChange(onRotationChange);
                 this.endpoint = new THREE.Vector3(0, length, 0);
+                this.userData.basePoint = new THREE.Vector3(0, 0, 0);
             }
             // FIXME
             setLength2(length, headLength = length*0.2, headWidth = headLength*0.2){
@@ -416,7 +429,6 @@
         gravityConstant = 0;
         let arrow_dir = new THREE.Vector3();
         let q = new THREE.Quaternion();
-        let direction = new THREE.Vector3(0, 1, 0);
         let proj = new THREE.Vector3();
         let worldPos = new THREE.Vector3();
         let W = new THREE.Vector3();
@@ -424,83 +436,72 @@
         let ballV = new THREE.Vector3();
         const label_G = document.body.appendChild(document.createElement('div')); label_G.classList.add('overlay');
         const label_W = document.body.appendChild(document.createElement('div')); label_W.classList.add('overlay');
-        const label_WxR = document.body.appendChild(document.createElement('div')); label_WxR.classList.add('overlay');
+        const label_Lworld = document.body.appendChild(document.createElement('div')); label_Lworld.classList.add('overlay');
         const label_WxWxR = document.body.appendChild(document.createElement('div')); label_WxWxR.classList.add('overlay');
         let overlayPos = new THREE.Vector3();
         let demoState = -1;
         let tF = 2;
         let angleStepDiv = 192;
-        let alpha = 0, beta = 0, gamma = 0;
+        
         function updatePhysics(dt){
-            W.set(0, params.R_wy, 0);
             arrow_R.setLength2(params.R);
+            point_Top.getWorldPosition(worldPos);
+            point_Top.getWorldQuaternion(q);
+            let torque = worldPos.clone().cross(new THREE.Vector3(0, -9.81, 0));
+            torque.applyQuaternion(q); // world to body torque
+            L = w.clone().applyMatrix3(I);
+            L.applyQuaternion(q);
+            arrow_Lworld.setDirection(L.normalize());
+
+            // Compute omega_dot (Euler’s equations for rigid body)
+            const omegaDot = new THREE.Vector3(
+              (torque.x - (I.elements[8] - I.elements[4]) * w.y * w.z) / I.elements[0],
+              (torque.y - (I.elements[0] - I.elements[8]) * w.z * w.x) / I.elements[4],
+              (torque.z - (I.elements[4] - I.elements[0]) * w.x * w.y) / I.elements[8]
+            );
+            w.addScaledVector(omegaDot, 0.001);  // Integrate omega
+            params.wx = w.x;
+            params.wy = w.y;
+            params.wz = w.z;
+            const omegaQuat = new THREE.Quaternion(w.x, w.y, w.z, 0);
+            const qDot = arrow_R.quaternion.clone().multiply(omegaQuat);//.multiplyScalar(0.5);
+            arrow_R.quaternion.x += qDot.x * dt;
+            arrow_R.quaternion.y += qDot.y * dt;
+            arrow_R.quaternion.z += qDot.z * dt;
+            arrow_R.quaternion.w += qDot.w * dt;
+            arrow_R.quaternion.normalize();
         
             // Angular velocity  w = I^-1 * L
-            const w = L.clone().applyMatrix3(I.clone().invert());
             // Update Euler angles: simple integrator (not accurate for long-term dynamics)
-            //gamma += wz * dt;
-            beta += w.y * dt;  // Precession (in body frame, approx)
-            alpha = params.R_ex; // Tilt remains constant for symmetric top under torque-free motion
-            //beta += params.R_wy*dt;
-            if (beta > 2*Math.PI)
-                beta = 0;
-            arrow_R.quaternion.setFromEuler(new THREE.Euler(alpha, beta, gamma, 'XYZ'));
-            
+            //gamma += params.wz * dt;
+            //beta += params.wy * dt;  // Precession (in body frame, approx)
+            //alpha += params.wx * dt; // Tilt remains constant for symmetric top under torque-free motion
+            //if (beta > 2*Math.PI)
+            //    beta = 0;
+            //arrow_R.quaternion.setFromEuler(new THREE.Euler(alpha, beta, gamma, 'XYZ'));
+            Q = W.clone()//.cross(P);
+            //arrow_Lworld.setLength(L.length());
+            //arrow_Lworld.setDirection(L);
+
             // arrow_Top world direction -> arrow_dir
             point_Top.getWorldQuaternion(q);
             arrow_dir.set(0, 1, 0);
             arrow_dir.applyQuaternion(q);
             P = arrow_dir.multiplyScalar(arrow_R.length*2).clone();
-            proj = arrow_dir.projectOnVector(direction);
+            proj = arrow_dir.projectOnVector(dirY);
             line_CD.updateEnd(proj);
-            
             line_DR.updateStart(proj);
             point_Top.getWorldPosition(worldPos);
-            //arrow_W.position.set(worldPos.x, worldPos.y, worldPos.z);
             line_DR.updateEnd(worldPos);
-            // Q = WxR
-            Q = W.clone().cross(P);
-            arrow_WxR.setLength(Q.length());
-            arrow_WxR.setDirection(Q);
-            arrow_WxR.position.set(worldPos.x, worldPos.y, worldPos.z);
-            sphere.userData.WxR = Q;
-            // U = WxWxR
-            U = W.clone().cross(Q);
-            arrow_WxWxR.setLength(U.length());
-            arrow_WxWxR.setDirection(U.multiplyScalar(-1));
-            arrow_WxWxR.position.set(worldPos.x, worldPos.y, worldPos.z);
 
-            // Coriolis = -2WxV
-            // Custom vector V
-            point_R.getWorldPosition(worldPos);
-            arrow_G.position.set(worldPos.x, worldPos.y, worldPos.z);
-            //arrow_G.getWorldQuaternion(q);
-            //arrow_dir.set(0, 1, 0);
-            //arrow_dir.applyQuaternion(q);
-            G = arrow_dir.multiplyScalar(arrow_G.length).clone();
-
-            if(params.text_overlay && W.length() > 0.2){ updateArrowOverlay(arrow_W, label_W, '<b>&omega;</b>'); } else { label_W.innerHTML = ''; }
-            if(params.text_overlay && Q.length() > 0.1){ updateArrowOverlay(arrow_WxR, label_WxR, '<b>&omega;xR</b>'); } else { label_WxR.innerHTML = ''; }
-            if(params.text_overlay && U.length() > 0.1){ updateArrowOverlay(arrow_WxWxR, label_WxWxR, '<b>-&omega;x(&omega;xR)</b>'); } else { label_WxWxR.innerHTML = ''; }
-            if(params.text_overlay && G.length() > 0.1){ updateArrowOverlay(arrow_G,  label_G, '<b>G</b>'); } else { label_G.innerHTML = ''; }
-
-            // sync moving sphere in (Ammo) physicsWorld
-            const btTransform = new Ammo.btTransform();
-            //const worldPos = new THREE.Vector3();
-            sphere.getWorldPosition(worldPos);
-            btTransform.setIdentity();
-            btTransform.setOrigin(new Ammo.btVector3(worldPos.x, worldPos.y, worldPos.z));
-            btTransform.setRotation(new Ammo.btQuaternion(...arrow_R.quaternion));
-            //sphere.userData.physicsBody.setWorldTransform(btTransform);
-            //const btVec = new Ammo.btVector3(worldPos.x, worldPos.y, worldPos.z);
+            if(params.text_overlay){
+                updateArrowOverlay(arrow_W, label_W, '<b>&omega;</b>');
+                updateArrowOverlay(arrow_Lworld, label_Lworld, '<b>Lworld</b>');
+                //updateArrowOverlay(arrow_WxWxR, label_WxWxR, '<b>-&omega;x(&omega;xR)</b>');
+                updateArrowOverlay(arrow_G,  label_G, '<b>G</b>');
+            }
             //dataDiv.innerHTML += `sphere World Pos: ${sphereWorldPos.x.toFixed(3)}, ${sphereWorldPos.y.toFixed(3)}, ${sphereWorldPos.z.toFixed(3)}<br/>`;
             if(params.trace){ tracePath(sphere); }
-
-            // Step world
-            //physicsWorld.stepSimulation(deltaTime, 10);
-            let tVect = sphere.position.clone().normalize().multiplyScalar(-6);
-            let bodyRelPosC = new Ammo.btVector3(...tVect);
-            //sphere.userData.physicsBody.applyForce(bodyRelPosC, new Ammo.btVector3());
         }
 
         function onWindowResize() {
