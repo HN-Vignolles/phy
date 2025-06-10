@@ -65,6 +65,7 @@
         }
     </script>
     <script src="https://unpkg.com/three@v0.157.0/examples/jsm/libs/ammo.wasm.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.22.0/dist/tf.min.js"></script>
     <script type="module">
         // Based on https://github.com/mrdoob/three.js/blob/master/examples/physics_ammo_rope.html
         import * as THREE from 'three';
@@ -77,8 +78,7 @@
         let canvasHalfHeight;
         let transformAux1;
         const params = { 
-            R: 1, R_ex: 0, R_ey: 0, R_ez: Math.PI/4, R_wy: 0.3,
-            V: 0, V_ex: Math.PI, V_ey: 0, V_ez: 0,
+            R: 1, R_ex: 0.2, R_ey: 0, R_ez: Math.PI/4, R_wy: 0.3,
             text_overlay: false, trace: true,
             pixel_ratio: 1,
         };
@@ -129,7 +129,7 @@
             renderer.setPixelRatio(1);
             renderer.shadowMap.enabled = true;
             camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
-            camera.position.set(5, 4, 5);
+            camera.position.set(2, 3, 2);
             scene = new THREE.Scene();
             scene.background = new THREE.Color(0xbfd0e5);
             scene.fog = new THREE.FogExp2(0xf0f0f0, 0.025);
@@ -158,8 +158,6 @@
             // Orbit Controls
             controls = new OrbitControls(camera, renderer.domElement);
             controls.listenToKeyEvents(window);
-            //controls.enableDamping = true; // an animation loop is required when either damping or auto-rotation are enabled
-            //controls.dampingFactor = 0.05;
             controls.screenSpacePanning = true;
             controls.minDistance = 1;
             controls.maxDistance = 30;
@@ -172,10 +170,6 @@
             paramsFolder.add(params, 'R_ex', 0, Math.PI, Math.PI/16).listen();
             paramsFolder.add(params, 'R_ez', 0, Math.PI, Math.PI/16).listen();
             paramsFolder.add(params, 'R_wy', -5, 5, 0.1).name('R_ωy').listen();
-            paramsFolder.add(params, 'V', 0, 2, 0.01).listen();
-            paramsFolder.add(params, 'V_ex', 0, Math.PI, 0.01).listen();
-            paramsFolder.add(params, 'V_ey', 0, Math.PI, 0.01).listen();
-            paramsFolder.add(params, 'V_ez', 0, Math.PI, Math.PI/4).listen();
             paramsFolder.add(params, 'text_overlay').name('Text Overlay').listen();
             paramsFolder.add(params, 'trace').onChange(setTrace);
             paramsFolder.add(params, 'pixel_ratio', pixel_ratios).name('Pixel Ratio').onChange(setPixelRatio);
@@ -189,9 +183,10 @@
             }
         }
     
-        let sphere, ground, point_R, point_Top, pendulumConstraint;
-        let arrow_R, arrow_Top, arrow_W, arrow_WxR, arrow_WxWxR, arrow_V, arrow_Vball, arrow_VballCor;
+        let sphere, ground, point_R, point_Top;
+        let arrow_R, arrow_Top, arrow_W, arrow_WxR, arrow_WxWxR, arrow_G, arrow_Vball;
         let line_CD, line_DR, path, linePath;
+        let L, I;
         function createObjects(){
             const pos = new THREE.Vector3();
             const quat = new THREE.Quaternion();
@@ -232,6 +227,10 @@
             sphere.parent = arrow_R;
             sphere.userData.basePoint = new THREE.Vector3(0, 0, 0);
             arrow_R.children.push(sphere);
+            L = new THREE.Vector3(0, 1, 0);
+            I = new THREE.Matrix3(1,0,0,0,1,0,0,0,0.5);
+            console.log('I', I, 'Iinv', I.invert());
+            L.applyEuler(new THREE.Euler(params.R_ex, 0, 0, 'XYZ'));
             
             // Box whose center represents the point R
             point_R = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.1, 0.1, 1, 1, 1), new THREE.MeshPhongMaterial({ transparent: true, opacity: 0 }));
@@ -245,23 +244,23 @@
             point_Top.userData.basePoint = new THREE.Vector3(0, 0, 0);
             arrow_Top.children.push(point_Top);
             
-            // Velocity vector
-            arrow_V = new Arrow(dirY, new THREE.Vector3(), 1, 0x0);
-            arrow_V.parent = arrow_Top;
-            arrow_V.userData.basePoint = new THREE.Vector3(0, 0, 0);
-            arrow_Top.children.push(arrow_V);
+            // G vector
+            arrow_G = new Arrow(dirY, new THREE.Vector3(), 1, 0x0);
+            arrow_G.userData.basePoint = new THREE.Vector3(0, 0, 0);
+            scene.add(arrow_G);
+            arrow_G.rotation.x = Math.PI;
 
             arrow_R.updateChildren();
             arrow_Top.updateChildren();
             scene.add(arrow_R);
 
-            pos.set(0, 1, 0);
-            arrow_W = new Arrow(dirY, pos, 1, 0x0000ff);
+            arrow_W = new Arrow(dirY, new THREE.Vector3(), 1, 0x0000ff);
+            arrow_W.parent = point_Top;
+            point_Top.children.push(arrow_W);
             arrow_WxR = new Arrow(dirY, new THREE.Vector3(), 1, 0x0);
             arrow_WxWxR = new Arrow(dirY, new THREE.Vector3(), 1, 0xff0000);
             arrow_Vball = new Arrow(dirY, new THREE.Vector3(), 1, 0x0);
-            arrow_VballCor = new Arrow(dirY, new THREE.Vector3(), 1, 0xff0000);
-            scene.add(arrow_W, arrow_WxR, arrow_WxWxR, arrow_Vball, arrow_VballCor);
+            scene.add(arrow_WxR, arrow_WxWxR, arrow_Vball);
             line_CD = new Line(new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 5, 0), 5, 0x0);
             line_DR = new Line(new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 5, 0), 5, 0x0);
             scene.add(line_CD, line_DR);
@@ -416,14 +415,14 @@
         const dataDiv = document.querySelector('#data');
         gravityConstant = 0;
         let arrow_dir = new THREE.Vector3();
-        let arrow_quat = new THREE.Quaternion();
+        let q = new THREE.Quaternion();
         let direction = new THREE.Vector3(0, 1, 0);
         let proj = new THREE.Vector3();
         let worldPos = new THREE.Vector3();
         let W = new THREE.Vector3();
-        let P, Q, U, V, ballCor, btVect;
+        let P, Q, U, G;
         let ballV = new THREE.Vector3();
-        const label_V = document.body.appendChild(document.createElement('div')); label_V.classList.add('overlay');
+        const label_G = document.body.appendChild(document.createElement('div')); label_G.classList.add('overlay');
         const label_W = document.body.appendChild(document.createElement('div')); label_W.classList.add('overlay');
         const label_WxR = document.body.appendChild(document.createElement('div')); label_WxR.classList.add('overlay');
         const label_WxWxR = document.body.appendChild(document.createElement('div')); label_WxWxR.classList.add('overlay');
@@ -431,41 +430,33 @@
         let demoState = -1;
         let tF = 2;
         let angleStepDiv = 192;
-        let theta = 0;
-        function updatePhysics(deltaTime){
+        let alpha = 0, beta = 0, gamma = 0;
+        function updatePhysics(dt){
             W.set(0, params.R_wy, 0);
-            //arrow_R.rotation.x = params.R_ex;
-            //arrow_R.rotation.y += params.R_wy*deltaTime;
-            //arrow_R.rotation.z = params.R_ez;
-            theta += params.R_wy*deltaTime;
-            if (theta > 2*Math.PI)
-                theta = 0;
-            arrow_V.rotation.x = params.V_ex;
-            arrow_V.rotation.y = params.V_ey;
-            arrow_V.rotation.z = params.V_ez;
             arrow_R.setLength2(params.R);
-            arrow_V.setLength2(params.V);
-            arrow_W.setLength2(W.y);
+        
+            // Angular velocity  w = I^-1 * L
+            const w = L.clone().applyMatrix3(I.clone().invert());
+            // Update Euler angles: simple integrator (not accurate for long-term dynamics)
+            //gamma += wz * dt;
+            beta += w.y * dt;  // Precession (in body frame, approx)
+            alpha = params.R_ex; // Tilt remains constant for symmetric top under torque-free motion
+            //beta += params.R_wy*dt;
+            if (beta > 2*Math.PI)
+                beta = 0;
+            arrow_R.quaternion.setFromEuler(new THREE.Euler(alpha, beta, gamma, 'XYZ'));
             
-            let qStep = new THREE.Quaternion();
-            qStep.setFromAxisAngle(direction, params.R_ez)
-            arrow_R.quaternion.setFromEuler(new THREE.Euler(params.R_ex, theta, params.R_ez, 'XYZ'));
-            //arrow_R.quaternion.multiply(q)
-            
-            // arrow_R world direction -> arrow_dir
-            arrow_R.getWorldQuaternion(arrow_quat);
-            //console.log(arrow_quat, arrow_R.quaternion)
+            // arrow_Top world direction -> arrow_dir
+            point_Top.getWorldQuaternion(q);
             arrow_dir.set(0, 1, 0);
-            arrow_dir.applyQuaternion(arrow_quat);
-            // P = arrow_dir*|R|
-            P = arrow_dir.multiplyScalar(arrow_R.length).clone();  // `.multiplyScalar` doesn't change `arrow_dir`
-            // proj = proj_{direction} arrow_dir, direction = (0, 1, 0)
+            arrow_dir.applyQuaternion(q);
+            P = arrow_dir.multiplyScalar(arrow_R.length*2).clone();
             proj = arrow_dir.projectOnVector(direction);
             line_CD.updateEnd(proj);
-            arrow_W.position.set(proj.x, proj.y, proj.z);
             
             line_DR.updateStart(proj);
-            point_R.getWorldPosition(worldPos);
+            point_Top.getWorldPosition(worldPos);
+            //arrow_W.position.set(worldPos.x, worldPos.y, worldPos.z);
             line_DR.updateEnd(worldPos);
             // Q = WxR
             Q = W.clone().cross(P);
@@ -481,26 +472,17 @@
 
             // Coriolis = -2WxV
             // Custom vector V
-            point_Top.getWorldPosition(worldPos);
-            arrow_V.getWorldQuaternion(arrow_quat);
-            arrow_dir.set(0, 1, 0);
-            arrow_dir.applyQuaternion(arrow_quat);
-            V = arrow_dir.multiplyScalar(arrow_V.length).clone();
-            // sphere velocity vector
-            //btVect = sphere.userData.physicsBody.getLinearVelocity();
-            //ballV.set(btVect.x(), btVect.y(), btVect.z());
-            //arrow_Vball.setLength(ballV.length());
-            //arrow_Vball.setDirection(ballV.normalize());
-            //arrow_Vball.position.set(sphere.position.x, sphere.position.y, sphere.position.z);
-            //ballCor = W.clone().multiplyScalar(-2).cross(ballV);
-            //arrow_VballCor.setLength(ballCor.length() * 1.5);
-            //arrow_VballCor.setDirection(ballCor.normalize());
-            //arrow_VballCor.position.set(sphere.position.x, sphere.position.y, sphere.position.z);
+            point_R.getWorldPosition(worldPos);
+            arrow_G.position.set(worldPos.x, worldPos.y, worldPos.z);
+            //arrow_G.getWorldQuaternion(q);
+            //arrow_dir.set(0, 1, 0);
+            //arrow_dir.applyQuaternion(q);
+            G = arrow_dir.multiplyScalar(arrow_G.length).clone();
 
             if(params.text_overlay && W.length() > 0.2){ updateArrowOverlay(arrow_W, label_W, '<b>&omega;</b>'); } else { label_W.innerHTML = ''; }
             if(params.text_overlay && Q.length() > 0.1){ updateArrowOverlay(arrow_WxR, label_WxR, '<b>&omega;xR</b>'); } else { label_WxR.innerHTML = ''; }
             if(params.text_overlay && U.length() > 0.1){ updateArrowOverlay(arrow_WxWxR, label_WxWxR, '<b>-&omega;x(&omega;xR)</b>'); } else { label_WxWxR.innerHTML = ''; }
-            if(params.text_overlay && V.length() > 0.1){ updateArrowOverlay(arrow_V,  label_V, '<b>V</b>'); } else { label_V.innerHTML = ''; }
+            if(params.text_overlay && G.length() > 0.1){ updateArrowOverlay(arrow_G,  label_G, '<b>G</b>'); } else { label_G.innerHTML = ''; }
 
             // sync moving sphere in (Ammo) physicsWorld
             const btTransform = new Ammo.btTransform();
@@ -511,7 +493,6 @@
             btTransform.setRotation(new Ammo.btQuaternion(...arrow_R.quaternion));
             //sphere.userData.physicsBody.setWorldTransform(btTransform);
             //const btVec = new Ammo.btVector3(worldPos.x, worldPos.y, worldPos.z);
-            //pendulumConstraint.setPivotA(btVec);
             //dataDiv.innerHTML += `sphere World Pos: ${sphereWorldPos.x.toFixed(3)}, ${sphereWorldPos.y.toFixed(3)}, ${sphereWorldPos.z.toFixed(3)}<br/>`;
             if(params.trace){ tracePath(sphere); }
 
